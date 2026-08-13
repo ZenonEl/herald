@@ -1,0 +1,34 @@
+[platforms.telegram]
+type = "telegram"
+token_file = "~/.config/herald/telegram.token"
+
+[files]
+allowed_roots = ["~/Herald/outbox"]
+max_bytes = 50000000
+
+[routes.example]
+platform = "telegram"
+chat_id = "-1001234567890"
+topic_id = 42
+
+[projects.example]
+label = "Example project"
+description = "Use for messages about the example project."
+route = "example"
+
+# Capture: log work chats into a local buffer the assistant can read.
+# The bot must be a member with privacy mode disabled; membership alone is not
+# consent - only chats listed here are stored.
+[capture]
+enabled = false
+ttl_days = 7
+capture_self = true
+download_media = true
+max_download_bytes = 20000000
+# database = "~/.local/share/herald/inbox.db"
+# files_dir = "~/.local/share/herald/files"
+# self_id = 0            # required only when capture_self = false
+
+[[capture.chats]]
+id = -1001234567890
+slug = "example"

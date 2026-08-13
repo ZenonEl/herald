@@ -1,0 +1,24 @@
+# Пользовательский юнит: ~/.config/systemd/user/herald-capture.service
+# systemctl --user daemon-reload && systemctl --user enable --now herald-capture
+#
+# Restart=always обязателен: Telegram выбрасывает недоставленные апдейты
+# примерно через сутки, поэтому простой демона дольше суток означает
+# безвозвратно потерянные сообщения.
+[Unit]
+Description=herald capture: log work chats into the local buffer
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/env uv run --directory %h/GitHub/herald herald-capture
+Restart=always
+RestartSec=5
+# Демон читает только конфиг и пишет только в свой каталог данных.
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/share/herald
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

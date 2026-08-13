@@ -1,0 +1,36 @@
+[project]
+name = "herald-mcp"
+version = "0.3.0"
+description = "A small MCP delivery service for AI assistants"
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+authors = [{ name = "ZenonEl" }]
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.28,<1",
+    "mcp>=2,<3",
+]
+
+[project.urls]
+Homepage = "https://github.com/ZenonEl/herald"
+Repository = "https://github.com/ZenonEl/herald"
+Issues = "https://github.com/ZenonEl/herald/issues"
+
+[project.scripts]
+herald = "herald.server:main"
+herald-capture = "herald.capture:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8,<10",
+]
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/herald"]
