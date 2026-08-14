@@ -29,16 +29,14 @@ Preset intent:
 
 Example source material:
 
-> Prices are loaded. Delivery is not configured because the client's messages conflict. We also need to know whether courier delivery is free, what the buyer pays below the threshold, and whether delivery is included in the new prices.
+> Prices are loaded. Delivery is not configured because one message says delivery is included in every price and another says it is free only from 3000 ₽.
 
 Default `brief` update:
 
-- summary: `Цены для 126 товаров загружены; настройка доставки ждёт уточнения правил.`
+- summary: `Цены для 126 товаров загружены; доставку нельзя настроить, пока не выбрано одно из двух правил.`
 - blockers: `В сообщениях клиента указаны два разных правила бесплатной доставки.`
 - client_questions:
-  - `Курьерская доставка тоже бесплатная или только доставка до пункта?`
-  - `Сколько платит покупатель при заказе ниже порога?`
-  - `Доставка уже учтена в новых ценах?`
+  - `Какое правило использовать: доставка всегда включена в цену или бесплатна только от 3000 ₽?`
 - next_steps: `После ответа обновить пороги, шапку, страницу доставки и оферту.`
 
 Scope example:

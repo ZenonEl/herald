@@ -12,9 +12,9 @@ Send only when the user explicitly requests an external message or an existing t
 1. Resolve the destination from the named project or clear conversation context. Call `list_destinations` when uncertain. Never guess between projects.
 2. Set the scope to the exact subject requested by the user or notification flag. Treat it as a hard boundary. Do not widen a payment update into general project health, append marketplace work to a site update, or include another real issue merely because it is known.
 3. Use `brief` unless the user explicitly asks for another preset. `standard` is for requested context; `detailed` is only for an explicitly requested full report. Words such as "отчёт" or "апдейт" alone do not authorize a longer preset.
-4. Assume the recipient has not followed the project and does not know its terminology. Read [manager-style.md](references/manager-style.md) and keep only the minimum context needed to understand the subject, current result, and required response.
+4. Assume the recipient has not followed the project and does not know its terminology. Read [manager-style.md](references/manager-style.md) and [decision-examples.md](references/decision-examples.md). Keep only the minimum context needed to understand the subject, current result, and required response.
 5. If a skill named `humanizer` is available, load and apply it silently before calling Herald. Preserve facts and structured fields. If it is absent, unavailable, or fails to load, continue without blocking and use the reference checklist.
-6. Use `send_update` for statuses, results, completions, blockers, decisions, and client questions. In `brief`, write one self-contained result sentence. Add no more than five short list items in total and only when the recipient must know or act on them. Omit `completed` or `blockers` when the summary already states the same fact.
+6. Use `send_update` for statuses, results, completions, blockers, decisions, and client questions. In `brief`, write one self-contained result sentence. Add no more than five short list items in total and only when the recipient must know or act on them. Omit `completed` or `blockers` when the summary already states the same fact. For copy-ready client text, address the recipient directly and put required choices in `client_questions`; reserve `decisions_needed` for an explicitly requested internal report.
 7. Use `send_file` only when the user explicitly asks to send a local file or image. Use an absolute path, `kind=auto`, and a concise caption. If the path is rejected, explain that its directory must be added to `files.allowed_roots`; do not bypass the policy.
 8. Use `send_text` for exact user-provided copy, a genuinely unstructured message, or an object explanation that does not fit the fixed status fields. For HTML, pass raw Telegram tags such as `<b>` and `<i>`; never escaped tags such as `&lt;b&gt;`.
 9. Report success only after Herald returns a receipt. Include the project and Telegram message ID in the confirmation. On failure, state that nothing was confirmed sent.
@@ -69,6 +69,10 @@ Include a client question only when every condition is true:
 5. It asks for the current dependency, not a later dependency that matters only after another choice.
 
 If any condition fails, omit the question. Do not create questions to make the update look complete. Do not attach a separate project's task or a general backlog item to a convenient message.
+
+Before writing the question, build the dependency chain internally. Ask only about the earliest unresolved step. Do not expose this reasoning in the message.
+
+Write to the client, not about the client. Never say "заказчица должна", "заводить ли клиенту", "нужно решить" or another internal instruction in copy-ready text. Convert it to a direct request or question such as "Создать вам доступ для загрузки фотографий?"
 
 Before sending, delete greetings, conclusions, generic transitions, praise, hedging, and offers such as "если хотите" or "дайте знать". Avoid decorative headings, emoji, rhetorical summaries, vague comparisons, and phrases such as "важно отметить", "в рамках", "по итогу", "успешно выполнено", and "данный". Keep exact names, numbers, dates, deadlines, steps, conditions, and questions.
 
