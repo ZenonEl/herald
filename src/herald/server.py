@@ -7,16 +7,19 @@ from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
 from herald.config import Config, ConfigError, load_config
-from herald.domain import Message
+from herald.domain import ClientTopic, Message
 from herald.inbox import Inbox
-from herald.service import Herald, render_update
+from herald.service import Herald, render_client_copy, render_update
 from herald.telegram import TelegramAdapter
 
 
 INSTRUCTIONS = """Herald delivers messages and attachments to configured destinations.
-For status, completion, management reports, blockers, decisions, or client questions use
-send_update: it renders concise Telegram HTML from structured fields. Default to brief and
-write client-ready copy for a recipient who has not followed the project: name the subject,
+For text that a manager can copy and send to a client without understanding or rewriting it,
+use send_client_copy. Its headings are the real subjects from the client message or project,
+never fixed report categories. Preserve every in-scope subject the client raised. For each
+subject, state the concrete facts, proposal or next action, and at most one necessary question.
+For explicitly internal status, completion, blockers, or decisions use send_update.
+Default to brief and write for a recipient who has not followed the project: name the subject,
 state the result in plain everyday language, and include only questions or actions needed now.
 Replace internal names and professional jargon with their practical meaning. Omit work chronology,
 implementation details, tests, tools, and internal reasoning unless they change a client
@@ -36,7 +39,7 @@ Resolve project from explicit wording or clear project context; otherwise call
 list_destinations and ask instead of guessing. Normally omit route so the SSOT default is
 used. Subject is brief metadata, not a Telegram topic ID. Supply truthful agent/model names."""
 
-mcp = MCPServer("herald", instructions=INSTRUCTIONS, version="0.5.3")
+mcp = MCPServer("herald", instructions=INSTRUCTIONS, version="0.6.0")
 WRITE_ANNOTATIONS = ToolAnnotations(
     readOnlyHint=False,
     destructiveHint=False,
@@ -177,6 +180,48 @@ def send_update(
             reference=reference,
             format="html",
             preset=preset,
+        ),
+        route=route,
+    )
+    return asdict(receipt)
+
+
+@mcp.tool(annotations=WRITE_ANNOTATIONS)
+def send_client_copy(
+    topics: list[ClientTopic],
+    project: str,
+    subject: str,
+    agent: str,
+    model: str,
+    route: str | None = None,
+    reference: str | None = None,
+) -> dict[str, str | int | None]:
+    """Send copy-ready text addressed directly to the client.
+
+    This is the default tool when a manager should be able to copy the body without
+    understanding the project or rewriting it. Each topic title must be a concrete
+    subject taken from the client message or current project, such as "Оплата" or
+    "Фотографии". Never use fixed report headings such as "Проблемы", "Нужно решить",
+    or "Вопросы". Preserve all subjects raised by the client that are inside the
+    requested scope; brevity removes internal reasoning, not necessary facts.
+
+    Put concrete facts, proposals, and next actions in details. Address the client
+    directly. Add question only when its answer blocks the next action now, and ask
+    only the earliest unresolved dependency. Omit question when no answer is needed.
+    Do not shorten by a fixed word or item count. Keep all facts the client needs;
+    the only hard content limit is Telegram's 4096 visible characters.
+    """
+    text = render_client_copy(topics)
+    receipt = build_service().send(
+        Message(
+            text=text,
+            agent=agent,
+            model=model,
+            project=project,
+            subject=subject,
+            reference=reference,
+            format="html",
+            preset="brief",
         ),
         route=route,
     )

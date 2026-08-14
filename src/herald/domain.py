@@ -21,6 +21,13 @@ class Message:
 
 
 @dataclass(frozen=True, slots=True)
+class ClientTopic:
+    title: str
+    details: list[str]
+    question: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class FormattedText:
     text: str
     format: TextFormat

@@ -18,6 +18,7 @@ async def test_mcp_exposes_write_tools() -> None:
         "list_destinations",
         "send_text",
         "send_update",
+        "send_client_copy",
         "send_file",
         "notify_completion",
         "inbox_status",
@@ -29,6 +30,7 @@ async def test_mcp_exposes_write_tools() -> None:
     assert tools["send_text"].annotations.read_only_hint is False
     assert tools["notify_completion"].annotations.read_only_hint is False
     assert tools["send_update"].annotations.read_only_hint is False
+    assert tools["send_client_copy"].annotations.read_only_hint is False
     assert tools["send_file"].annotations.read_only_hint is False
     assert "format" in tools["send_text"].input_schema["required"]
     assert "preset" not in tools["send_text"].input_schema["required"]
@@ -53,6 +55,10 @@ async def test_mcp_exposes_write_tools() -> None:
     assert "first unresolved dependency" in tools["send_update"].description
     assert "dependency chain" in tools["send_update"].description
     assert "Address the recipient directly" in tools["send_update"].description
+    assert "copy the body" in tools["send_client_copy"].description
+    assert "fixed report headings" in tools["send_client_copy"].description
+    topic_schema = tools["send_client_copy"].input_schema["properties"]["topics"]
+    assert topic_schema["type"] == "array"
     assert tools["send_file"].input_schema["properties"]["kind"]["default"] == "auto"
     assert tools["inbox_status"].annotations.read_only_hint is True
     assert tools["inbox_fetch"].annotations.read_only_hint is False
@@ -61,6 +67,44 @@ async def test_mcp_exposes_write_tools() -> None:
     assert "real author" in tools["inbox_fetch"].description
     assert tools["inbox_export"].annotations.read_only_hint is False
     assert "relative" in tools["inbox_export"].description
+
+
+@pytest.mark.anyio
+async def test_mcp_send_client_copy_decodes_topics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent = []
+
+    class FakeService:
+        def send(self, message, route=None):
+            sent.append(message)
+            return Receipt("telegram", "work", 1, "-1001", 2)
+
+    monkeypatch.setattr("herald.server.build_service", FakeService)
+
+    async with Client(mcp) as client:
+        await client.call_tool(
+            "send_client_copy",
+            {
+                "topics": [
+                    {
+                        "title": "Оплата",
+                        "details": ["Сейчас оплатить заказ нельзя."],
+                        "question": "Как покупатель должен оплачивать заказ?",
+                    }
+                ],
+                "project": "aleon",
+                "subject": "Ответ клиенту",
+                "agent": "Claude",
+                "model": "Opus",
+            },
+        )
+
+    assert sent[0].text == (
+        "<b>Оплата</b>\n"
+        "Сейчас оплатить заказ нельзя.\n"
+        "Как покупатель должен оплачивать заказ?"
+    )
 
 
 def test_completion_has_no_decorative_prefix(

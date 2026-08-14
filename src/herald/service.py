@@ -7,6 +7,7 @@ from herald.config import Config, ConfigError
 from herald.domain import (
     Attachment,
     AttachmentKind,
+    ClientTopic,
     FormattedText,
     Message,
     MessagePreset,
@@ -110,6 +111,49 @@ _PRESET_TOTAL_ITEM_LIMITS = {
     "standard": 40,
     "detailed": 60,
 }
+_RESERVED_CLIENT_TOPIC_TITLES = {
+    "итог",
+    "сделано",
+    "проблемы",
+    "нужно решить",
+    "вопросы",
+    "дальше",
+}
+
+
+def render_client_copy(topics: list[ClientTopic]) -> str:
+    if not topics:
+        raise ValueError("Client copy must contain at least one topic")
+
+    rendered_topics = []
+    for topic in topics:
+        title = topic.title.strip()
+        if not title or "\n" in title:
+            raise ValueError("Each client topic title must be one non-empty line")
+        if title.casefold() in _RESERVED_CLIENT_TOPIC_TITLES:
+            raise ValueError(
+                f"Client topic {title!r} is a fixed report heading; use the real "
+                "subject from the client message or project"
+            )
+
+        details = [detail.strip() for detail in topic.details if detail.strip()]
+        for detail in details:
+            if "\n" in detail:
+                raise ValueError("Each client topic detail must be one line")
+
+        question = topic.question.strip() if topic.question else None
+        if question and "\n" in question:
+            raise ValueError("Each client topic question must be one line")
+        if not details and not question:
+            raise ValueError("Each client topic must contain a detail or question")
+
+        lines = [f"<b>{escape(title)}</b>"]
+        lines.extend(escape(detail) for detail in details)
+        if question:
+            lines.append(escape(question))
+        rendered_topics.append("\n".join(lines))
+
+    return "\n\n".join(rendered_topics)
 
 
 def render_update(

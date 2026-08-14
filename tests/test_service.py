@@ -3,8 +3,8 @@ from dataclasses import dataclass, field
 import pytest
 
 from herald.config import Config, FilePolicy, PlatformConfig, ProjectConfig, RouteConfig
-from herald.domain import Attachment, Destination, FormattedText, Message
-from herald.service import Herald, render_update
+from herald.domain import Attachment, ClientTopic, Destination, FormattedText, Message
+from herald.service import Herald, render_client_copy, render_update
 
 
 @dataclass
@@ -178,6 +178,51 @@ def test_render_update_limits_total_brief_items() -> None:
 
 def test_message_defaults_to_brief() -> None:
     assert Message("Текст", "Codex", "GPT", "herald", "Статус").preset == "brief"
+
+
+def test_render_client_copy_uses_real_topics_and_escapes_values() -> None:
+    rendered = render_client_copy(
+        [
+            ClientTopic(
+                title="Пункт СДЭК",
+                details=[
+                    "На Серпуховском Валу пункта нет.",
+                    "Поиск по адресу покажет два пункта <рядом>.",
+                ],
+                question="Подходит такая замена?",
+            ),
+            ClientTopic(
+                title="Фотографии",
+                details=["31 товар без фотографий скрыт."],
+                question="Создать вам доступ для загрузки снимков?",
+            ),
+        ]
+    )
+
+    assert rendered == (
+        "<b>Пункт СДЭК</b>\n"
+        "На Серпуховском Валу пункта нет.\n"
+        "Поиск по адресу покажет два пункта &lt;рядом&gt;.\n"
+        "Подходит такая замена?\n\n"
+        "<b>Фотографии</b>\n"
+        "31 товар без фотографий скрыт.\n"
+        "Создать вам доступ для загрузки снимков?"
+    )
+
+
+@pytest.mark.parametrize("title", ["Проблемы", "Нужно решить", "Вопросы"])
+def test_render_client_copy_rejects_fixed_report_headings(title: str) -> None:
+    with pytest.raises(ValueError, match="fixed report heading"):
+        render_client_copy([ClientTopic(title, ["Факт"])])
+
+
+def test_render_client_copy_has_no_arbitrary_detail_count_limit() -> None:
+    details = [f"Факт {index}" for index in range(20)]
+
+    rendered = render_client_copy([ClientTopic("Тема проекта", details)])
+
+    assert "Факт 0" in rendered
+    assert "Факт 19" in rendered
 
 
 def test_send_file_requires_allowed_root_and_adds_metadata(tmp_path) -> None:

@@ -1,4 +1,4 @@
 interface:
   display_name: "Herald Send"
-  short_description: "Send brief client-ready updates via Herald"
-  default_prompt: "Use $herald-send to send a brief client-ready update limited to the requested subject, asking only questions that block the next action now."
+  short_description: "Send copy-ready client messages via Herald"
+  default_prompt: "Use $herald-send to send a copy-ready client message grouped by the real subjects they raised, without internal report headings."
