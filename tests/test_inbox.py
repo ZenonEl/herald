@@ -9,7 +9,7 @@ import textwrap
 
 import pytest
 
-from herald.inbox import CapturedMessage, Inbox, as_epoch
+from herald.inbox import SCHEMA, CapturedMessage, Inbox, as_epoch
 
 
 def message(message_id: int, **changes) -> CapturedMessage:
@@ -38,6 +38,35 @@ def test_store_is_idempotent(inbox: Inbox) -> None:
     assert inbox.store(batch) == 2
     assert inbox.store(batch) == 0
     assert len(inbox.fetch(None, None, None, 10)) == 2
+
+
+def test_reply_context_round_trips_as_an_object(inbox: Inbox) -> None:
+    context = {
+        "kind": "message",
+        "message_id": 9,
+        "author_name": "Тимур Кадыров",
+        "text": "Срок — пятница",
+        "quote": {"text": "пятница", "position": 7, "is_manual": True},
+    }
+    inbox.store([message(10, reply_to=9, reply_context=context)])
+
+    row = inbox.fetch(None, None, None, 10, mark=False)[0]
+
+    assert row["reply_context"] == context
+
+
+def test_prepare_migrates_an_existing_database(tmp_path: Path) -> None:
+    database = tmp_path / "old.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(SCHEMA.replace("    reply_context TEXT,\n", ""))
+
+    Inbox(database, tmp_path / "files").prepare()
+
+    with sqlite3.connect(database) as connection:
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(messages)")
+        }
+    assert "reply_context" in columns
 
 
 def test_fetch_filters_by_chat_and_range(inbox: Inbox) -> None:
@@ -238,6 +267,26 @@ def test_export_bundle_makes_paths_relative(inbox: Inbox, tmp_path: Path) -> Non
     assert payload[0]["local_path"] == "files/work/5_report.csv"
     assert not Path(payload[0]["local_path"]).is_absolute()
     assert (tmp_path / "bundle" / "files" / "work" / "5_report.csv").read_bytes() == b"col\n1\n"
+
+
+def test_export_bundle_keeps_structured_reply_context(
+    inbox: Inbox, tmp_path: Path
+) -> None:
+    context = {
+        "kind": "message",
+        "message_id": 8,
+        "author_name": "Тимур Кадыров",
+        "text": "Исходный текст",
+        "quote": {"text": "текст", "position": 9, "is_manual": False},
+    }
+    inbox.store([message(9, reply_to=8, reply_context=context)])
+
+    inbox.export_bundle(tmp_path / "bundle")
+
+    payload = json.loads(
+        (tmp_path / "bundle" / "inbox.json").read_text(encoding="utf-8")
+    )
+    assert payload[0]["reply_context"] == context
 
 
 def test_export_bundle_notes_a_file_that_vanished(inbox: Inbox, tmp_path: Path) -> None:

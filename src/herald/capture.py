@@ -65,14 +65,9 @@ def media_of(message: dict) -> tuple[str | None, dict | None]:
     return None, None
 
 
-def origin_of(message: dict) -> tuple[str | None, int | None, str | None, str | None]:
-    """Who really wrote a forwarded message.
-
-    This is the whole point of capturing through a bot rather than pasting text
-    by hand: pasted forwards are attributed to whoever forwarded them, while the
-    Bot API keeps the original author unless that author chose to hide it.
-    """
-    forward = message.get("forward_origin")
+def _origin(
+    forward: object,
+) -> tuple[str | None, int | None, str | None, str | None]:
     if not isinstance(forward, dict):
         return None, None, None, None
     kind = forward.get("type")
@@ -89,6 +84,16 @@ def origin_of(message: dict) -> tuple[str | None, int | None, str | None, str | 
         chat = forward.get("chat") or {}
         return kind, chat.get("id"), chat.get("title") or "", date
     return kind, None, None, date
+
+
+def origin_of(message: dict) -> tuple[str | None, int | None, str | None, str | None]:
+    """Who really wrote a forwarded message.
+
+    This is the whole point of capturing through a bot rather than pasting text
+    by hand: pasted forwards are attributed to whoever forwarded them, while the
+    Bot API keeps the original author unless that author chose to hide it.
+    """
+    return _origin(message.get("forward_origin"))
 
 
 def sender_of(message: dict) -> tuple[dict, str]:
@@ -112,6 +117,78 @@ def sender_of(message: dict) -> tuple[dict, str]:
     return {}, "автор не указан"
 
 
+def _media_context(payload: dict) -> dict | None:
+    kind, media = media_of(payload)
+    if kind is None:
+        return None
+    return {
+        "kind": kind,
+        "file_id": (media or {}).get("file_id"),
+        "file_name": (media or {}).get("file_name"),
+        "mime": (media or {}).get("mime_type"),
+        "size": (media or {}).get("file_size"),
+    }
+
+
+def reply_context_of(message: dict) -> dict | None:
+    """Snapshot the context Telegram supplied with a reply.
+
+    Bot API has no general getMessage method for group history. The nested
+    reply_to_message is therefore the only chance to retain an older parent
+    that arrived before the bot joined. Telegram deliberately stops nesting at
+    one level, so this cannot recurse indefinitely.
+    """
+    reply = message.get("reply_to_message")
+    external = message.get("external_reply")
+    quote = message.get("quote")
+    context: dict | None = None
+
+    if isinstance(reply, dict):
+        author, author_name = sender_of(reply)
+        origin_type, origin_id, origin_name, origin_date = origin_of(reply)
+        reply_chat = reply.get("chat") or {}
+        context = {
+            "kind": "message",
+            "chat_id": reply_chat.get("id"),
+            "message_id": reply.get("message_id"),
+            "topic_id": reply.get("message_thread_id"),
+            "date": stamp(reply.get("date")),
+            "author_id": author.get("id"),
+            "author_name": author_name,
+            "author_username": author.get("username"),
+            "origin_type": origin_type,
+            "origin_id": origin_id,
+            "origin_name": origin_name,
+            "origin_date": origin_date,
+            "text": reply.get("text") or reply.get("caption") or "",
+            "media": _media_context(reply),
+        }
+    elif isinstance(external, dict):
+        origin_type, origin_id, origin_name, origin_date = _origin(
+            external.get("origin")
+        )
+        reply_chat = external.get("chat") or {}
+        context = {
+            "kind": "external",
+            "chat_id": reply_chat.get("id"),
+            "message_id": external.get("message_id"),
+            "origin_type": origin_type,
+            "origin_id": origin_id,
+            "origin_name": origin_name,
+            "origin_date": origin_date,
+            "media": _media_context(external),
+        }
+
+    if isinstance(quote, dict) and isinstance(quote.get("text"), str):
+        context = context or {"kind": "quote"}
+        context["quote"] = {
+            "text": quote["text"],
+            "position": quote.get("position"),
+            "is_manual": bool(quote.get("is_manual")),
+        }
+    return context
+
+
 def normalize(message: dict, chat: CaptureChat) -> CapturedMessage:
     author, author_name = sender_of(message)
     kind, media = media_of(message)
@@ -132,6 +209,7 @@ def normalize(message: dict, chat: CaptureChat) -> CapturedMessage:
         origin_name=origin_name,
         origin_date=origin_date,
         reply_to=(message.get("reply_to_message") or {}).get("message_id"),
+        reply_context=reply_context_of(message),
         text=message.get("text") or message.get("caption") or "",
         media_kind=kind,
         file_id=(media or {}).get("file_id"),
@@ -224,7 +302,10 @@ class Capture:
             chat_id = (payload.get("chat") or {}).get("id")
             if not isinstance(chat_id, int):
                 continue
-            chat = self.settings.chat(chat_id)
+            topic_id = payload.get("message_thread_id")
+            if not isinstance(topic_id, int) or isinstance(topic_id, bool):
+                topic_id = None
+            chat = self.settings.chat(chat_id, topic_id)
             if chat is None:
                 continue
             author, _ = sender_of(payload)
@@ -232,7 +313,33 @@ class Capture:
                 continue
             if not self.settings.capture_self and author.get("id") == self.settings.self_id:
                 continue
-            collected.append(normalize(payload, chat))
+            parent = payload.get("reply_to_message")
+            parent_allowed = True
+            if isinstance(parent, dict) and isinstance(parent.get("message_id"), int):
+                parent_chat_id = (parent.get("chat") or {}).get("id")
+                if not isinstance(parent_chat_id, int):
+                    parent_chat_id = chat_id
+                parent_topic_id = parent.get("message_thread_id")
+                if not isinstance(parent_topic_id, int) or isinstance(
+                    parent_topic_id, bool
+                ):
+                    parent_topic_id = topic_id if parent_chat_id == chat_id else None
+                parent_chat = self.settings.chat(parent_chat_id, parent_topic_id)
+                if parent_chat is not None:
+                    if parent.get("message_thread_id") != parent_topic_id:
+                        parent = dict(parent)
+                        parent["message_thread_id"] = parent_topic_id
+                    collected.append(normalize(parent, parent_chat))
+                else:
+                    parent_allowed = False
+            child = normalize(payload, chat)
+            if not parent_allowed and child.reply_context is not None:
+                quote = child.reply_context.get("quote")
+                child = replace(
+                    child,
+                    reply_context={"kind": "quote", "quote": quote} if quote else None,
+                )
+            collected.append(child)
         return collected, highest
 
     def download_media(self, messages: list[CapturedMessage]) -> list[CapturedMessage]:

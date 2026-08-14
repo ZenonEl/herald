@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS messages (
     origin_name TEXT,
     origin_date TEXT,
     reply_to INTEGER,
+    reply_context TEXT,
     text TEXT NOT NULL DEFAULT '',
     media_kind TEXT,
     file_id TEXT,
@@ -67,6 +68,7 @@ class CapturedMessage:
     origin_name: str | None = None
     origin_date: str | None = None
     reply_to: int | None = None
+    reply_context: dict | None = None
     text: str = ""
     media_kind: str | None = None
     file_id: str | None = None
@@ -170,6 +172,11 @@ class Inbox:
                 connection.execute("PRAGMA auto_vacuum=INCREMENTAL")
             connection.execute("PRAGMA journal_mode=WAL")
             connection.executescript(SCHEMA)
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(messages)")
+            }
+            if "reply_context" not in columns:
+                connection.execute("ALTER TABLE messages ADD COLUMN reply_context TEXT")
             connection.commit()
 
     def store(self, messages: Sequence[CapturedMessage]) -> int:
@@ -187,10 +194,14 @@ class Inbox:
             f"VALUES ({placeholders}, ?)"
         )
         stamp = now()
-        rows = [
-            tuple(asdict(message)[column] for column in COLUMNS) + (stamp,)
-            for message in messages
-        ]
+        rows = []
+        for message in messages:
+            values = asdict(message)
+            if values["reply_context"] is not None:
+                values["reply_context"] = json.dumps(
+                    values["reply_context"], ensure_ascii=False
+                )
+            rows.append(tuple(values[column] for column in COLUMNS) + (stamp,))
         with self.connect() as connection:
             cursor = connection.executemany(statement, rows)
             connection.commit()
@@ -271,6 +282,8 @@ class Inbox:
         result = []
         for row in rows:
             record = dict(row)
+            if record.get("reply_context"):
+                record["reply_context"] = json.loads(record["reply_context"])
             if claim:
                 record["was_state"] = record["state"]
                 record["state"] = "claimed"

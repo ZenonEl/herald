@@ -31,4 +31,5 @@ max_download_bytes = 20000000
 
 [[capture.chats]]
 id = -1001234567890
+topic_id = 42             # optional: capture only this forum topic
 slug = "example"

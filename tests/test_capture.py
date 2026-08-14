@@ -10,6 +10,7 @@ from herald.capture import (
     media_of,
     normalize,
     origin_of,
+    reply_context_of,
 )
 from herald.config import (
     CaptureChat,
@@ -135,6 +136,85 @@ def test_caption_becomes_text() -> None:
     assert captured.media_kind == "document"
 
 
+def test_reply_keeps_the_parent_snapshot_and_exact_quote() -> None:
+    parent = update(
+        40,
+        date=1785999000,
+        message_thread_id=1366,
+        text="Сначала согласовать смету, потом закупать.",
+        **{
+            "from": {
+                "id": 55,
+                "first_name": "Тимур",
+                "last_name": "Кадыров",
+                "username": "timur",
+                "is_bot": False,
+            }
+        },
+    )["message"]
+    message = update(
+        41,
+        message_thread_id=1366,
+        reply_to_message=parent,
+        quote={"text": "согласовать смету", "position": 8, "is_manual": True},
+    )["message"]
+
+    context = reply_context_of(message)
+
+    assert context == {
+        "kind": "message",
+        "chat_id": -100,
+        "message_id": 40,
+        "topic_id": 1366,
+        "date": "2026-08-06T06:50:00+00:00",
+        "author_id": 55,
+        "author_name": "Тимур Кадыров",
+        "author_username": "timur",
+        "origin_type": None,
+        "origin_id": None,
+        "origin_name": None,
+        "origin_date": None,
+        "text": "Сначала согласовать смету, потом закупать.",
+        "media": None,
+        "quote": {
+            "text": "согласовать смету",
+            "position": 8,
+            "is_manual": True,
+        },
+    }
+
+
+def test_external_reply_keeps_origin_quote_and_media_metadata() -> None:
+    context = reply_context_of(
+        update(
+            1,
+            external_reply={
+                "origin": {
+                    "type": "user",
+                    "date": 1785999000,
+                    "sender_user": {"id": 55, "first_name": "Тимур"},
+                },
+                "chat": {"id": -200, "title": "Другой чат"},
+                "message_id": 9,
+                "document": {
+                    "file_id": "external",
+                    "file_name": "brief.pdf",
+                    "mime_type": "application/pdf",
+                    "file_size": 100,
+                },
+            },
+            quote={"text": "Срок — пятница", "position": 0},
+        )["message"]
+    )
+
+    assert context["kind"] == "external"
+    assert context["chat_id"] == -200
+    assert context["message_id"] == 9
+    assert context["origin_name"] == "Тимур"
+    assert context["quote"]["text"] == "Срок — пятница"
+    assert context["media"]["file_name"] == "brief.pdf"
+
+
 def test_collect_skips_chats_that_are_not_listed(tmp_path: Path) -> None:
     capture, _ = build(tmp_path)
     stray = update(1)
@@ -142,6 +222,107 @@ def test_collect_skips_chats_that_are_not_listed(tmp_path: Path) -> None:
     collected, highest = capture.collect([stray])
     assert collected == []
     assert highest == 1001
+
+
+def test_collect_keeps_only_the_listed_topic(tmp_path: Path) -> None:
+    topic = CaptureChat(chat_id=-100, topic_id=1366, slug="topic_1366")
+    capture, _ = build(tmp_path)
+    capture.config = replace(
+        capture.config, capture=replace(capture.settings, chats=(topic,))
+    )
+
+    collected, _ = capture.collect([
+        update(1, message_thread_id=1366),
+        update(2, message_thread_id=2599),
+        update(3),
+    ])
+
+    assert [message.message_id for message in collected] == [1]
+    assert collected[0].chat_slug == "topic_1366"
+
+
+def test_two_topics_in_one_chat_use_separate_slugs(tmp_path: Path) -> None:
+    topics = (
+        CaptureChat(chat_id=-100, topic_id=1366, slug="topic_1366"),
+        CaptureChat(chat_id=-100, topic_id=2599, slug="topic_2599"),
+    )
+    capture, _ = build(tmp_path)
+    capture.config = replace(
+        capture.config, capture=replace(capture.settings, chats=topics)
+    )
+
+    collected, _ = capture.collect([
+        update(1, message_thread_id=1366),
+        update(2, message_thread_id=2599),
+    ])
+
+    assert [message.chat_slug for message in collected] == [
+        "topic_1366",
+        "topic_2599",
+    ]
+
+
+def test_whole_chat_target_still_keeps_topic_messages(tmp_path: Path) -> None:
+    capture, _ = build(tmp_path)
+
+    collected, _ = capture.collect([update(1, message_thread_id=1366)])
+
+    assert len(collected) == 1
+    assert collected[0].chat_slug == "work"
+
+
+def test_reply_backfills_an_old_parent_from_the_allowed_topic(tmp_path: Path) -> None:
+    topic = CaptureChat(chat_id=-100, topic_id=1366, slug="metal_174")
+    capture, _ = build(tmp_path)
+    capture.config = replace(
+        capture.config, capture=replace(capture.settings, chats=(topic,))
+    )
+    parent = update(
+        40,
+        date=1785999000,
+        message_thread_id=1366,
+        text="Старое важное сообщение",
+        document={"file_id": "old-file", "file_name": "old.pdf", "file_size": 7},
+    )["message"]
+
+    collected, _ = capture.collect([
+        update(41, message_thread_id=1366, reply_to_message=parent)
+    ])
+
+    assert [message.message_id for message in collected] == [40, 41]
+    assert collected[0].text == "Старое важное сообщение"
+    assert collected[0].chat_slug == "metal_174"
+    assert collected[1].reply_to == 40
+    assert collected[1].reply_context["text"] == "Старое важное сообщение"
+    resolved = capture.download_media(collected)
+    assert resolved[0].local_path is not None
+    assert capture.source.downloads == ["old-file"]
+
+
+def test_reply_does_not_backfill_a_parent_from_an_unlisted_topic(
+    tmp_path: Path,
+) -> None:
+    topic = CaptureChat(chat_id=-100, topic_id=1366, slug="metal_174")
+    capture, _ = build(tmp_path)
+    capture.config = replace(
+        capture.config, capture=replace(capture.settings, chats=(topic,))
+    )
+    parent = update(40, message_thread_id=2599, text="Чужой топик")["message"]
+
+    collected, _ = capture.collect([
+        update(
+            41,
+            message_thread_id=1366,
+            reply_to_message=parent,
+            quote={"text": "видимая цитата", "position": 0},
+        )
+    ])
+
+    assert [message.message_id for message in collected] == [41]
+    assert collected[0].reply_context == {
+        "kind": "quote",
+        "quote": {"text": "видимая цитата", "position": 0, "is_manual": False},
+    }
 
 
 def test_collect_skips_our_own_bot(tmp_path: Path) -> None:
@@ -374,6 +555,64 @@ slug = "work"
         encoding="utf-8",
     )
     with pytest.raises(ConfigError, match="self_id"):
+        load_config(config)
+
+
+def test_config_accepts_two_topics_from_the_same_chat(tmp_path: Path) -> None:
+    config = tmp_path / "config.toml"
+    config.write_text(
+        """
+[platforms.telegram]
+type = "telegram"
+token_file = "~/.config/herald/telegram.token"
+
+[capture]
+enabled = true
+
+[[capture.chats]]
+id = -100
+topic_id = 1366
+slug = "topic_1366"
+
+[[capture.chats]]
+id = -100
+topic_id = 2599
+slug = "topic_2599"
+""",
+        encoding="utf-8",
+    )
+
+    loaded = load_config(config)
+
+    assert [chat.topic_id for chat in loaded.capture.chats] == [1366, 2599]
+
+
+def test_config_refuses_a_whole_chat_mixed_with_one_of_its_topics(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "config.toml"
+    config.write_text(
+        """
+[platforms.telegram]
+type = "telegram"
+token_file = "~/.config/herald/telegram.token"
+
+[capture]
+enabled = true
+
+[[capture.chats]]
+id = -100
+slug = "whole_chat"
+
+[[capture.chats]]
+id = -100
+topic_id = 1366
+slug = "topic_1366"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="cannot mix all of chat"):
         load_config(config)
 
 

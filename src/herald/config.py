@@ -44,6 +44,7 @@ class FilePolicy:
 class CaptureChat:
     chat_id: int
     slug: str
+    topic_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,11 +60,14 @@ class CaptureConfig:
     max_download_bytes: int = 20_000_000
     chats: tuple[CaptureChat, ...] = ()
 
-    def chat(self, chat_id: int) -> CaptureChat | None:
+    def chat(self, chat_id: int, topic_id: int | None = None) -> CaptureChat | None:
+        whole_chat: CaptureChat | None = None
         for entry in self.chats:
-            if entry.chat_id == chat_id:
+            if entry.chat_id == chat_id and entry.topic_id == topic_id:
                 return entry
-        return None
+            if entry.chat_id == chat_id and entry.topic_id is None:
+                whole_chat = entry
+        return whole_chat
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,7 +205,7 @@ def _capture(raw: Any) -> CaptureConfig:
     if not isinstance(chats_raw, list):
         raise ConfigError("[[capture.chats]] must be an array of tables")
     chats: list[CaptureChat] = []
-    seen_ids: set[int] = set()
+    seen_targets: set[tuple[int, int | None]] = set()
     seen_slugs: set[str] = set()
     for index, entry in enumerate(chats_raw):
         if not isinstance(entry, dict):
@@ -209,14 +213,31 @@ def _capture(raw: Any) -> CaptureConfig:
         chat_id = entry.get("id")
         if not isinstance(chat_id, int) or isinstance(chat_id, bool):
             raise ConfigError(f"capture.chats[{index}].id must be an integer chat id")
+        topic_id = _optional_int(
+            entry.get("topic_id"), f"capture.chats[{index}].topic_id"
+        )
+        if topic_id is not None and topic_id <= 0:
+            raise ConfigError(
+                f"capture.chats[{index}].topic_id must be a positive integer"
+            )
         slug = _string(entry, "slug", f"capture.chats[{index}]")
-        if chat_id in seen_ids:
-            raise ConfigError(f"capture.chats lists chat {chat_id} twice")
+        target = (chat_id, topic_id)
+        if target in seen_targets:
+            suffix = f" topic {topic_id}" if topic_id is not None else ""
+            raise ConfigError(f"capture.chats lists chat {chat_id}{suffix} twice")
+        if any(
+            seen_chat_id == chat_id
+            and (seen_topic_id is None or topic_id is None)
+            for seen_chat_id, seen_topic_id in seen_targets
+        ):
+            raise ConfigError(
+                f"capture.chats cannot mix all of chat {chat_id} with its topics"
+            )
         if slug in seen_slugs:
             raise ConfigError(f"capture.chats reuses slug {slug!r}")
-        seen_ids.add(chat_id)
+        seen_targets.add(target)
         seen_slugs.add(slug)
-        chats.append(CaptureChat(chat_id=chat_id, slug=slug))
+        chats.append(CaptureChat(chat_id=chat_id, slug=slug, topic_id=topic_id))
     return CaptureConfig(
         enabled=_flag(raw.get("enabled"), "capture.enabled", defaults.enabled),
         platform=_optional_string(raw.get("platform"), "capture.platform")
