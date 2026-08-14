@@ -44,6 +44,8 @@ async def test_mcp_exposes_write_tools() -> None:
         == "brief"
     )
     assert "Never encode tags" in tools["send_text"].description
+    assert "named objects" in tools["send_text"].description
+    assert "general conclusion" in tools["send_text"].description
     assert tools["send_update"].input_schema["properties"]["preset"]["default"] == "brief"
     assert "client-ready" in tools["send_update"].description
     assert "everyday language" in tools["send_update"].description

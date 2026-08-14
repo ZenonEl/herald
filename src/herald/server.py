@@ -22,13 +22,16 @@ Replace internal names and professional jargon with their practical meaning. Omi
 implementation details, tests, tools, and internal reasoning unless they change a client
 decision, risk, cost, or deadline. Use standard only when the user asks for context and
 detailed only when explicitly requested. Use send_text only for exact dictated copy or
-genuinely unstructured messages. Use send_file for an explicitly requested local attachment;
+an object explanation that does not fit status fields. For an object explanation, start with
+the object name and list its concrete steps, properties, result, and limits. Keep every detail
+needed to understand or choose; remove comparison prose, conclusions, and generalisations.
+Use send_file for an explicitly requested local attachment;
 paths must be allowed by the Herald config.
 Resolve project from explicit wording or clear project context; otherwise call
 list_destinations and ask instead of guessing. Normally omit route so the SSOT default is
 used. Subject is brief metadata, not a Telegram topic ID. Supply truthful agent/model names."""
 
-mcp = MCPServer("herald", instructions=INSTRUCTIONS, version="0.5.0")
+mcp = MCPServer("herald", instructions=INSTRUCTIONS, version="0.5.1")
 WRITE_ANNOTATIONS = ToolAnnotations(
     readOnlyHint=False,
     destructiveHint=False,
@@ -94,9 +97,11 @@ def send_text(
     Prefer format='html' for human-facing text. Use raw Telegram HTML tags: <b>,
     <i>, <u>, <s>, <code>, <pre>, <blockquote>, <tg-spoiler>, and <a href='...'>.
     Never encode tags as &lt;b&gt;. brief is the default: concise, self-contained,
-    client-ready copy without process or internal technical details. standard adds
-    necessary context; detailed is used only when explicitly requested and must still
-    fit Telegram's 4096-character limit.
+    client-ready copy without process or internal technical details. For an explanation,
+    structure the text by named objects and list their concrete steps, properties, result,
+    and limits. Do not replace details with a general conclusion or a prose comparison.
+    standard adds necessary context; detailed is used only when explicitly requested and
+    must still fit Telegram's 4096-character limit.
     """
     receipt = build_service().send(
         Message(
