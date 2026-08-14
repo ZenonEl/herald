@@ -101,9 +101,14 @@ class Herald:
 
 
 _PRESET_LIMITS = {
-    "brief": (240, 180, 6),
+    "brief": (180, 140, 3),
     "standard": (500, 280, 8),
     "detailed": (800, 400, 12),
+}
+_PRESET_TOTAL_ITEM_LIMITS = {
+    "brief": 5,
+    "standard": 40,
+    "detailed": 60,
 }
 
 
@@ -130,14 +135,16 @@ def render_update(
 
     sections = (
         ("Сделано", completed),
-        ("Стоперы", blockers),
+        ("Проблемы", blockers),
         ("Нужно решить", decisions_needed),
-        ("Вопросы клиенту", client_questions),
+        ("Вопросы", client_questions),
         ("Дальше", next_steps),
     )
-    parts = [f"<b>Итог</b>\n{escape(summary)}"]
+    normalized_sections = []
+    total_items = 0
     for heading, raw_items in sections:
         items = [item.strip() for item in raw_items if item.strip()]
+        total_items += len(items)
         if len(items) > count_limit:
             raise ValueError(
                 f"Section {heading!r} has too many items for preset={preset}: "
@@ -149,6 +156,16 @@ def render_update(
                     f"Each {heading!r} item must be one line and at most "
                     f"{item_limit} characters for preset={preset}"
                 )
+        normalized_sections.append((heading, items))
+    total_limit = _PRESET_TOTAL_ITEM_LIMITS[preset]
+    if total_items > total_limit:
+        raise ValueError(
+            f"Update has too many list items for preset={preset}: "
+            f"{total_items} > {total_limit}"
+        )
+
+    parts = [escape(summary)] if preset == "brief" else [f"<b>Итог</b>\n{escape(summary)}"]
+    for heading, items in normalized_sections:
         if items:
             rendered = "\n".join(
                 f"{index}. {escape(item)}" for index, item in enumerate(items, 1)

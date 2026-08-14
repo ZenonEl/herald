@@ -142,10 +142,10 @@ def test_render_update_is_structured_and_escapes_values() -> None:
     )
 
     assert rendered == (
-        "<b>Итог</b>\nЦены &lt;готовы&gt;\n\n"
+        "Цены &lt;готовы&gt;\n\n"
         "<b>Сделано</b>\n1. Загружено 126 строк\n\n"
-        "<b>Стоперы</b>\n1. Нужно правило доставки\n\n"
-        "<b>Вопросы клиенту</b>\n1. Какова цена ниже порога?\n\n"
+        "<b>Проблемы</b>\n1. Нужно правило доставки\n\n"
+        "<b>Вопросы</b>\n1. Какова цена ниже порога?\n\n"
         "<b>Дальше</b>\n1. Обновить оферту"
     )
 
@@ -161,6 +161,23 @@ def test_render_update_rejects_prose_in_brief_item() -> None:
             next_steps=[],
             preset="brief",
         )
+
+
+def test_render_update_limits_total_brief_items() -> None:
+    with pytest.raises(ValueError, match="too many list items"):
+        render_update(
+            summary="Статус проекта",
+            completed=["Один", "Два"],
+            blockers=["Три"],
+            decisions_needed=["Четыре"],
+            client_questions=["Пять"],
+            next_steps=["Шесть"],
+            preset="brief",
+        )
+
+
+def test_message_defaults_to_brief() -> None:
+    assert Message("Текст", "Codex", "GPT", "herald", "Статус").preset == "brief"
 
 
 def test_send_file_requires_allowed_root_and_adds_metadata(tmp_path) -> None:

@@ -1,4 +1,4 @@
 interface:
   display_name: "Herald Send"
-  short_description: "Send concise structured updates via Herald"
-  default_prompt: "Use $herald-send to send a concise manager update with the correct project route."
+  short_description: "Send brief client-ready updates via Herald"
+  default_prompt: "Use $herald-send to send a brief client update in plain language with only the result and required questions or actions."

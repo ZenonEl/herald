@@ -15,15 +15,20 @@ from herald.telegram import TelegramAdapter
 
 INSTRUCTIONS = """Herald delivers messages and attachments to configured destinations.
 For status, completion, management reports, blockers, decisions, or client questions use
-send_update: it renders concise Telegram HTML from structured fields. Use send_text only
-for exact dictated copy or genuinely unstructured messages. Use send_file for an explicitly
-requested local attachment; paths must be allowed by the Herald config. Choose preset=brief
-by default, standard for useful context, detailed only when explicitly needed.
+send_update: it renders concise Telegram HTML from structured fields. Default to brief and
+write client-ready copy for a recipient who has not followed the project: name the subject,
+state the result in plain everyday language, and include only questions or actions needed now.
+Replace internal names and professional jargon with their practical meaning. Omit work chronology,
+implementation details, tests, tools, and internal reasoning unless they change a client
+decision, risk, cost, or deadline. Use standard only when the user asks for context and
+detailed only when explicitly requested. Use send_text only for exact dictated copy or
+genuinely unstructured messages. Use send_file for an explicitly requested local attachment;
+paths must be allowed by the Herald config.
 Resolve project from explicit wording or clear project context; otherwise call
 list_destinations and ask instead of guessing. Normally omit route so the SSOT default is
 used. Subject is brief metadata, not a Telegram topic ID. Supply truthful agent/model names."""
 
-mcp = MCPServer("herald", instructions=INSTRUCTIONS, version="0.3.0")
+mcp = MCPServer("herald", instructions=INSTRUCTIONS, version="0.5.0")
 WRITE_ANNOTATIONS = ToolAnnotations(
     readOnlyHint=False,
     destructiveHint=False,
@@ -80,7 +85,7 @@ def send_text(
     agent: str,
     model: str,
     format: Literal["plain", "html"],
-    preset: Literal["brief", "standard", "detailed"],
+    preset: Literal["brief", "standard", "detailed"] = "brief",
     route: str | None = None,
     reference: str | None = None,
 ) -> dict[str, str | int | None]:
@@ -88,9 +93,10 @@ def send_text(
 
     Prefer format='html' for human-facing text. Use raw Telegram HTML tags: <b>,
     <i>, <u>, <s>, <code>, <pre>, <blockquote>, <tg-spoiler>, and <a href='...'>.
-    Never encode tags as &lt;b&gt;. Presets guide composition: brief is a concise
-    subject/question plus direct answer; standard is a compact structured update;
-    detailed is a full report that must still fit Telegram's 4096-character limit.
+    Never encode tags as &lt;b&gt;. brief is the default: concise, self-contained,
+    client-ready copy without process or internal technical details. standard adds
+    necessary context; detailed is used only when explicitly requested and must still
+    fit Telegram's 4096-character limit.
     """
     receipt = build_service().send(
         Message(
@@ -124,13 +130,16 @@ def send_update(
     route: str | None = None,
     reference: str | None = None,
 ) -> dict[str, str | int | None]:
-    """Send a concise structured management update.
+    """Send a concise, client-ready structured update.
 
-    Put only the direct outcome in summary. Use one short fact per list item. Put
-    anything preventing progress in blockers, choices requiring an owner in
-    decisions_needed, and ready-to-send questions in client_questions. Technical
-    reasoning and chronology are omitted unless they change a decision. The server
-    enforces preset-specific length and item limits and renders safe Telegram HTML.
+    brief is the default. Write for a recipient who has not followed the project: put
+    the concrete subject and current result in one self-contained summary using plain
+    everyday language. Replace jargon and internal names with their practical meaning. Add only
+    blockers, decisions, questions, or the next action needed now; completed is omitted
+    when the summary already says what was done. Do not include chronology, review or
+    test logs, implementation details, tool names, or internal reasoning unless they
+    change a client decision, risk, cost, or deadline. The server enforces preset-specific
+    length and item limits and renders safe Telegram HTML.
     """
     text = render_update(
         summary=summary,
@@ -209,14 +218,15 @@ def notify_completion(
     """Send a concise formatted completion notice when explicitly requested.
 
     Prefer format='html' and raw Telegram HTML tags, never escaped tag text.
-    Use brief by default; select standard or detailed only when the requested
-    completion report genuinely needs more context.
+    Use brief by default and state the concrete completed result without an emoji,
+    greeting, or generic "done" preface. Select standard or detailed only when the
+    user explicitly requests more context.
     """
     if not summary.strip():
         raise ValueError("Completion summary cannot be empty")
     receipt = build_service().send(
         Message(
-            text=f"✅ {summary.strip()}",
+            text=summary.strip(),
             agent=agent,
             model=model,
             project=project,

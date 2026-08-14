@@ -17,7 +17,7 @@ class Message:
     subject: str
     reference: str | None = None
     format: TextFormat = "plain"
-    preset: MessagePreset = "standard"
+    preset: MessagePreset = "brief"
 
 
 @dataclass(frozen=True, slots=True)
