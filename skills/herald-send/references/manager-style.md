@@ -12,6 +12,10 @@ Use this checklist before sending:
 - Prefer one sentence per fact and one fact per list item.
 - Separate blockers, decisions, and client questions.
 - Make client questions answerable without reconstructing the history.
+- Keep the update inside its requested subject. Exclude unrelated blockers, backlog items, and project health.
+- Ask only for an answer controlled by the recipient that blocks the next action now and is not already available.
+- Ask the first unresolved dependency. Do not ask about a later step before the prerequisite decision is made.
+- Omit questions entirely when no question passes these checks.
 - Remove implementation chronology, self-justification, repeated context, speculative branches, tests, reviews, commits, tool names, and internal technical detail.
 - Retain exact quantities, risks, deadlines, and irreversible consequences when relevant.
 - Do not offer extra explanation inside the message. Provide it separately only when the user asks.
@@ -36,3 +40,11 @@ Default `brief` update:
   - `Сколько платит покупатель при заказе ниже порога?`
   - `Доставка уже учтена в новых ценах?`
 - next_steps: `После ответа обновить пороги, шапку, страницу доставки и оферту.`
+
+Scope example:
+
+- requested subject: `Подключение оплаты`;
+- include: `Через какой сервис принимаем оплату?` when no service has been chosen;
+- exclude: a marketplace inventory question, because it does not affect payment;
+- exclude: a request for payment keys until the payment service is chosen;
+- exclude: a legal entity question when the agreed entity is already recorded.

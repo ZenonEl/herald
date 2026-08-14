@@ -49,6 +49,8 @@ async def test_mcp_exposes_write_tools() -> None:
     assert tools["send_update"].input_schema["properties"]["preset"]["default"] == "brief"
     assert "client-ready" in tools["send_update"].description
     assert "everyday language" in tools["send_update"].description
+    assert "exact subject" in tools["send_update"].description
+    assert "first unresolved dependency" in tools["send_update"].description
     assert tools["send_file"].input_schema["properties"]["kind"]["default"] == "auto"
     assert tools["inbox_status"].annotations.read_only_hint is True
     assert tools["inbox_fetch"].annotations.read_only_hint is False

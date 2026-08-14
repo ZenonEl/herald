@@ -20,7 +20,10 @@ write client-ready copy for a recipient who has not followed the project: name t
 state the result in plain everyday language, and include only questions or actions needed now.
 Replace internal names and professional jargon with their practical meaning. Omit work chronology,
 implementation details, tests, tools, and internal reasoning unless they change a client
-decision, risk, cost, or deadline. Use standard only when the user asks for context and
+decision, risk, cost, or deadline. Treat the requested subject as a hard scope boundary: do
+not add other project problems. Ask a question only when its answer is unavailable, controlled
+by the recipient, and blocks the next action on that subject now. Do not ask about downstream
+steps until they become the next blocker. Use standard only when the user asks for context and
 detailed only when explicitly requested. Use send_text only for exact dictated copy or
 an object explanation that does not fit status fields. For an object explanation, start with
 the object name and list its concrete steps, properties, result, and limits. Keep every detail
@@ -31,7 +34,7 @@ Resolve project from explicit wording or clear project context; otherwise call
 list_destinations and ask instead of guessing. Normally omit route so the SSOT default is
 used. Subject is brief metadata, not a Telegram topic ID. Supply truthful agent/model names."""
 
-mcp = MCPServer("herald", instructions=INSTRUCTIONS, version="0.5.1")
+mcp = MCPServer("herald", instructions=INSTRUCTIONS, version="0.5.2")
 WRITE_ANNOTATIONS = ToolAnnotations(
     readOnlyHint=False,
     destructiveHint=False,
@@ -141,7 +144,12 @@ def send_update(
     the concrete subject and current result in one self-contained summary using plain
     everyday language. Replace jargon and internal names with their practical meaning. Add only
     blockers, decisions, questions, or the next action needed now; completed is omitted
-    when the summary already says what was done. Do not include chronology, review or
+    when the summary already says what was done. Keep every field inside the exact subject
+    requested by the user; never append unrelated project health. Include a client question
+    only if the answer is not already available, the recipient controls it, and progress on
+    the subject stops without it now. Ask only the first unresolved dependency, not questions
+    about later steps. Omit the question section when nothing passes this test.
+    Do not include chronology, review or
     test logs, implementation details, tool names, or internal reasoning unless they
     change a client decision, risk, cost, or deadline. The server enforces preset-specific
     length and item limits and renders safe Telegram HTML.
