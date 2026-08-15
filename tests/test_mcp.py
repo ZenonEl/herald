@@ -93,7 +93,7 @@ async def test_mcp_send_client_copy_decodes_topics(
                         "question": "Как покупатель должен оплачивать заказ?",
                     }
                 ],
-                "project": "aleon",
+                "project": "demo-shop",
                 "subject": "Ответ клиенту",
                 "agent": "Claude",
                 "model": "Opus",
@@ -121,7 +121,7 @@ def test_completion_has_no_decorative_prefix(
 
     notify_completion(
         summary="Цены для 126 товаров загружены.",
-        project="aleon",
+        project="demo-shop",
         subject="Цены",
         agent="Claude",
         model="Opus",

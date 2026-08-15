@@ -97,8 +97,8 @@ def test_rejects_escaped_html_tags() -> None:
         platforms={
             "tg": PlatformConfig(type="telegram", token_env="TOKEN", token_file=None)
         },
-        routes={"aleon": RouteConfig(platform="tg", destination=destination)},
-        projects={"aleon": ProjectConfig(label="Алеон", route="aleon")},
+        routes={"demo-shop": RouteConfig(platform="tg", destination=destination)},
+        projects={"demo-shop": ProjectConfig(label="Demo Shop", route="demo-shop")},
     )
 
     with pytest.raises(ValueError, match="raw Telegram HTML"):
@@ -107,7 +107,7 @@ def test_rejects_escaped_html_tags() -> None:
                 text="&lt;b&gt;Готово&lt;/b&gt;",
                 agent="Claude",
                 model="Opus",
-                project="aleon",
+                project="demo-shop",
                 subject="отчёт",
                 format="html",
             )
