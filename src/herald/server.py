@@ -1,4 +1,5 @@
 from dataclasses import asdict
+from importlib.metadata import version
 import logging
 from pathlib import Path
 from typing import Literal
@@ -39,7 +40,7 @@ Resolve project from explicit wording or clear project context; otherwise call
 list_destinations and ask instead of guessing. Normally omit route so the SSOT default is
 used. Subject is brief metadata, not a Telegram topic ID. Supply truthful agent/model names."""
 
-mcp = MCPServer("herald", instructions=INSTRUCTIONS, version="0.6.0")
+mcp = MCPServer("herald", instructions=INSTRUCTIONS, version=version("herald-mcp"))
 WRITE_ANNOTATIONS = ToolAnnotations(
     readOnlyHint=False,
     destructiveHint=False,

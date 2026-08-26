@@ -3,6 +3,23 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.7.0] — 2026-08-26
+
+### Добавлено
+
+- единый marketplace-плагин для Claude Code и Codex;
+- автоматическое подключение MCP-сервера и общего `herald-send` skill без
+  ручных симлинков;
+- машинная проверка согласованности версий пакета и плагин-манифестов;
+- документация установки, обновления и ручного fallback-подключения.
+
+### Изменено
+
+- версия MCP-сервера теперь берётся из метаданных Python-пакета, а не
+  дублируется в коде;
+- постоянный capture явно отделён от plugin-cache и по-прежнему запускается из
+  стабильного checkout.
+
 ## [0.6.0] — 2026-08-14
 
 ### Добавлено
@@ -83,6 +100,7 @@
 - локальный capture-буфер и экспорт для Mnemo;
 - двойное лицензирование AGPL-3.0-or-later и CC BY-SA 4.0.
 
+[0.7.0]: https://github.com/ZenonEl/herald/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ZenonEl/herald/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/ZenonEl/herald/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/ZenonEl/herald/compare/v0.5.1...v0.5.2

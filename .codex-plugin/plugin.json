@@ -1,0 +1,53 @@
+{
+  "name": "herald",
+  "version": "0.7.0",
+  "description": "Локальный MCP-канал между AI-ассистентами и Telegram: готовые сообщения, файлы и захват рабочих топиков",
+  "author": {
+    "name": "ZenonEl",
+    "url": "https://github.com/ZenonEl"
+  },
+  "homepage": "https://github.com/ZenonEl/herald",
+  "repository": "https://github.com/ZenonEl/herald",
+  "license": "AGPL-3.0-or-later",
+  "keywords": [
+    "telegram",
+    "mcp",
+    "notifications",
+    "attachments",
+    "capture",
+    "claude-code",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "mcpServers": {
+    "herald": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        ".",
+        "herald"
+      ],
+      "cwd": "."
+    }
+  },
+  "interface": {
+    "displayName": "Herald",
+    "shortDescription": "Telegram-канал для Claude и Codex",
+    "longDescription": "Отправляет готовые клиентские сообщения и файлы в разрешённые Telegram-топики, захватывает рабочие чаты в локальный буфер и сохраняет провенанс ответа.",
+    "developerName": "ZenonEl",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Отправь краткий клиентский ответ через Herald.",
+      "Покажи настроенные проекты и Telegram-топики.",
+      "Проверь, какие сообщения накопились в Herald."
+    ],
+    "websiteURL": "https://github.com/ZenonEl/herald",
+    "screenshots": []
+  }
+}

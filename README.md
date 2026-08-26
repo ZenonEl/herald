@@ -88,7 +88,72 @@
 — Codex · GPT · herald · MCP
 ```
 
-### Настройка
+### Установка плагином
+
+Нужен установленный [`uv`](https://docs.astral.sh/uv/). Плагин приносит один и
+тот же MCP-сервер и один и тот же skill в Claude Code и Codex: отдельные
+`mcp add`, симлинки и копии навыка не нужны.
+
+Claude Code:
+
+```bash
+claude plugin marketplace add ZenonEl/herald
+claude plugin install herald@herald --scope user
+```
+
+Codex:
+
+```bash
+codex plugin marketplace add ZenonEl/herald
+codex plugin add herald@herald
+```
+
+После установки открой новую сессию. Установленный skill называется
+`herald:herald-send`: в Claude Code его можно вызвать как
+`/herald:herald-send`, в Codex — как `$herald:herald-send`. Обычная просьба
+«отправь через Herald» также должна активировать его по описанию.
+
+Плагин не содержит токен и рабочие адресаты. Создай пользовательский конфиг:
+
+```bash
+mkdir -p ~/.config/herald
+curl -fsSL https://raw.githubusercontent.com/ZenonEl/herald/main/config.example.toml \
+  -o ~/.config/herald/config.toml
+printf '%s\n' 'TOKEN_FROM_BOTFATHER' > ~/.config/herald/telegram.token
+chmod 600 ~/.config/herald/telegram.token
+```
+
+Открой `~/.config/herald/config.toml` и замени пример своими разрешёнными
+группами, топиками и проектами. Проверить подключение можно просьбой «покажи
+направления Herald» в новой Claude/Codex-сессии.
+
+### Обновление плагина
+
+Claude Code:
+
+```bash
+claude plugin marketplace update herald
+claude plugin update herald@herald --scope user
+```
+
+Codex:
+
+```bash
+codex plugin marketplace upgrade herald
+codex plugin add herald@herald
+```
+
+После обновления тоже нужна новая сессия: уже открытая продолжает работать со
+старым набором skill/MCP-инструментов.
+
+Если Herald раньше подключался вручную, перед установкой плагина убери старую
+MCP-запись командами `codex mcp remove herald` и `claude mcp remove herald`.
+Проверь старые пути `~/.agents/skills/herald-send` и
+`~/.claude/skills/herald-send`: если это именно символические ссылки на checkout,
+удали ссылки через `unlink`, не затрагивая сам репозиторий. Пользовательский
+`~/.config/herald/` при миграции сохраняется.
+
+### Конфиг и версии
 
 Проект использует `uv`. Версия Python зафиксирована в `.python-version`, версия
 пакета и зависимости — в `pyproject.toml`, точные версии — в `uv.lock`.
@@ -97,13 +162,8 @@
 SSOT версии пакета, менять её нужно через `uv version --bump patch|minor|major`.
 Каждый публичный выпуск получает подписанный тег `vX.Y.Z`, GitHub Release и
 запись в [`CHANGELOG.md`](CHANGELOG.md); версия тега обязана совпадать с
-`project.version`.
-
-```bash
-uv sync
-mkdir -p ~/.config/herald
-cp config.example.toml ~/.config/herald/config.toml
-```
+`project.version`. Тесты дополнительно сверяют версию пакета с обоими
+плагин-манифестами и marketplace Claude Code.
 
 В `~/.config/herald/config.toml` задаются платформы, разрешённые маршруты,
 проекты и каталоги файлов. Это SSOT: MCP-команда может выбрать только
@@ -207,10 +267,21 @@ herald отклонит вызов и подскажет передать сыр
 остальное — как документ. Подпись ограничена 1024 отображаемыми символами;
 документ — настроенным лимитом до 50 МБ.
 
-### Глобальное подключение
+### Ручное подключение из checkout
+
+Этот способ нужен для разработки или установки без marketplace. Не смешивай его
+с установкой плагина: иначе клиент увидит две копии skill или два MCP-сервера.
+
+```bash
+git clone https://github.com/ZenonEl/herald.git
+cd herald
+uv sync --locked
+mkdir -p ~/.config/herald
+cp config.example.toml ~/.config/herald/config.toml
+```
 
 Используй абсолютный путь к checkout, чтобы сервер был доступен из любого
-проекта и любого нового чата.
+проекта и нового чата.
 
 Codex (пользовательский `~/.codex/config.toml`):
 
@@ -225,15 +296,15 @@ claude mcp add --scope user herald -- \
   uv run --directory /absolute/path/to/herald herald
 ```
 
-После добавления перезапусти открытые клиенты. Проверка:
+После добавления открой новые сессии. Проверка:
 
 ```bash
 codex mcp get herald
 claude mcp get herald
 ```
 
-Общий скилл лежит в `skills/herald-send`. Чтобы обе системы использовали один
-источник без копий, установи символические ссылки:
+Общий skill лежит в `skills/herald-send`. При ручной установке обе системы могут
+использовать один источник через символические ссылки:
 
 ```bash
 mkdir -p ~/.claude/skills ~/.agents/skills
@@ -241,7 +312,8 @@ ln -s /absolute/path/to/herald/skills/herald-send ~/.claude/skills/herald-send
 ln -s /absolute/path/to/herald/skills/herald-send ~/.agents/skills/herald-send
 ```
 
-В Claude он вызывается как `/herald-send`, в Codex — как `$herald-send`.
+В таком режиме без plugin namespace он вызывается как `/herald-send` в Claude
+Code и `$herald-send` в Codex.
 Инструкция предлагает применить доступный `humanizer`, но не требует и не
 копирует его: если такого скилла нет, отправка продолжается по встроенному
 чек-листу.
@@ -299,6 +371,11 @@ herald ничего не хранит. Он отправляет то, что е
   пометкой, что скачать не удалось, и оригинал в Telegram.
 
 ### Настройка захвата
+
+Marketplace-плагин автоматически подключает MCP и skill, но не запускает
+фоновый процесс. Для постоянного capture нужен стабильный checkout репозитория:
+путь внутри plugin-cache меняется при обновлении. Клонируй Herald вручную,
+настрой тот же пользовательский конфиг и запускай демон из checkout.
 
 В `~/.config/herald/config.toml` (или в файле, на который указывает
 `HERALD_CONFIG` — им же удобно пробовать, не трогая боевой):
