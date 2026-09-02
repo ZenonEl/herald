@@ -33,3 +33,23 @@ max_download_bytes = 20000000
 id = -1001234567890
 topic_id = 42             # optional: capture only this forum topic
 slug = "example"
+project = "example"       # lets project-scoped inbox reads avoid other projects
+
+# Watch beta: route private messages from one trusted owner to already-open AI
+# sessions. The same herald-capture process polls Telegram for Capture and Watch.
+[watch]
+enabled = false
+allow_inspect_all = false  # normal sessions can inspect only their own deliveries
+
+[watch.sources.owner_dm]
+chat_id = 123456789        # private chat with the bot
+user_id = 123456789        # only this Telegram account may issue commands
+
+[watch.profiles.example]
+tags = ["example", "101"] # send "#example text" or "#101 text" to the bot
+source = "owner_dm"
+project = "example"
+response_format = "brief"
+reply_context = "native_or_quote"
+# reply_route = "example" # optional; project route is used by default
+# instructions = "Reply with the result or the one question blocking it."

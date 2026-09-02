@@ -1,7 +1,7 @@
 {
   "name": "herald",
   "description": "Локальный MCP-канал между AI-ассистентами и Telegram: готовые сообщения, файлы и захват рабочих топиков",
-  "version": "0.7.0",
+  "version": "0.8.0-beta.1",
   "author": {
     "name": "ZenonEl"
   },

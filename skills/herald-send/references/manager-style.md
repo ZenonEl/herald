@@ -21,6 +21,33 @@ Use this checklist before sending:
 - Do not offer extra explanation inside the message. Provide it separately only when the user asks.
 - Do not replace a list of facts with "проще", "удобнее", "полнее", "лучше", or another unsupported summary.
 
+## Subtraction pass
+
+Before sending, ask whether each sentence changes what the recipient understands,
+decides, or does now. Delete it when the answer is no.
+
+- Do not begin with a recap of yesterday or the previous message merely to show
+  continuity. Keep only the one prior fact needed to understand today's state.
+- Do not turn recurrence into drama. "This happened for the third time" belongs
+  only when frequency changes priority, liability, SLA, or the proposed action.
+- Do not append incidental logs, internal errors, credentials, tool hygiene, or
+  review discoveries to an unrelated client update. Raise a real security issue
+  separately when action is required; never reproduce the secret.
+- Do not remove a known fact when the recipient needs it to understand the result,
+  or when it changes risk, cost, deadline, scope, or the requested decision.
+
+Example raw draft:
+
+> As discussed yesterday, deployment is blocked again for the third time. The
+> diagnostic output also printed a credential. We still need production access.
+
+Default client copy:
+
+> Deployment is waiting for production access. Please provide it to continue.
+
+The recap and recurrence add no decision-relevant information. The credential
+incident is handled separately only if it requires the recipient's action.
+
 Preset intent:
 
 - `brief` (default): one self-contained result sentence plus only active blockers, questions, or the next action. At most five list items total; normally no completed section or background.

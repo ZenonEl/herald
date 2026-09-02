@@ -1,0 +1,4 @@
+interface:
+  display_name: "Herald Watch"
+  short_description: "Дежурство открытой AI-сессии через личку Telegram"
+  default_prompt: "Включи Herald-дежурство по выбранным профилям."

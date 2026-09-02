@@ -5,7 +5,7 @@ import pytest
 from mcp import Client
 
 from herald.domain import Receipt
-from herald.server import main, mcp, notify_completion
+from herald.server import _inbox_filter, _inbox_source, main, mcp, notify_completion
 
 
 @pytest.mark.anyio
@@ -25,6 +25,15 @@ async def test_mcp_exposes_write_tools() -> None:
         "inbox_fetch",
         "inbox_done",
         "inbox_export",
+        "list_inbox_sources",
+        "watch_list",
+        "watch_start",
+        "watch_wait",
+        "watch_inspect",
+        "watch_reply",
+        "watch_ack",
+        "watch_status",
+        "watch_stop",
     }
     assert tools["list_destinations"].annotations.read_only_hint is True
     assert tools["send_text"].annotations.read_only_hint is False
@@ -46,6 +55,7 @@ async def test_mcp_exposes_write_tools() -> None:
         == "brief"
     )
     assert "Never encode tags" in tools["send_text"].description
+    assert "<blockquote expandable>" in tools["send_text"].description
     assert "named objects" in tools["send_text"].description
     assert "general conclusion" in tools["send_text"].description
     assert tools["send_update"].input_schema["properties"]["preset"]["default"] == "brief"
@@ -59,6 +69,15 @@ async def test_mcp_exposes_write_tools() -> None:
     assert "fixed report headings" in tools["send_client_copy"].description
     topic_schema = tools["send_client_copy"].input_schema["properties"]["topics"]
     assert topic_schema["type"] == "array"
+    topic_definition = tools["send_client_copy"].input_schema["$defs"]["ClientTopic"]
+    quote_definition = tools["send_client_copy"].input_schema["$defs"]["ClientQuote"]
+    assert "quotes" not in topic_definition["required"]
+    assert quote_definition["properties"]["mode"] == {
+        "default": "expandable",
+        "enum": ["visible", "expandable"],
+        "title": "Mode",
+        "type": "string",
+    }
     assert tools["send_file"].input_schema["properties"]["kind"]["default"] == "auto"
     assert tools["inbox_status"].annotations.read_only_hint is True
     assert tools["inbox_fetch"].annotations.read_only_hint is False
@@ -67,6 +86,13 @@ async def test_mcp_exposes_write_tools() -> None:
     assert "real author" in tools["inbox_fetch"].description
     assert tools["inbox_export"].annotations.read_only_hint is False
     assert "relative" in tools["inbox_export"].description
+    assert tools["watch_list"].annotations.read_only_hint is True
+    assert tools["watch_inspect"].annotations.read_only_hint is True
+    assert tools["watch_wait"].annotations.read_only_hint is False
+    assert tools["watch_reply"].annotations.read_only_hint is False
+    assert tools["watch_wait"].input_schema["properties"]["timeout"]["default"] == 30
+    assert tools["inbox_fetch"].input_schema["properties"]["scope"]["default"] == "project"
+    assert "reply_to" not in tools["send_text"].input_schema["required"]
 
 
 @pytest.mark.anyio
@@ -91,6 +117,13 @@ async def test_mcp_send_client_copy_decodes_topics(
                         "title": "Оплата",
                         "details": ["Сейчас оплатить заказ нельзя."],
                         "question": "Как покупатель должен оплачивать заказ?",
+                        "quotes": [
+                            {
+                                "title": "Сообщение клиента",
+                                "text": "Нужна оплата картой.",
+                                "mode": "visible",
+                            }
+                        ],
                     }
                 ],
                 "project": "demo-shop",
@@ -103,7 +136,9 @@ async def test_mcp_send_client_copy_decodes_topics(
     assert sent[0].text == (
         "<b>Оплата</b>\n"
         "Сейчас оплатить заказ нельзя.\n"
-        "Как покупатель должен оплачивать заказ?"
+        "Как покупатель должен оплачивать заказ?\n"
+        "<blockquote><b>Сообщение клиента</b>\n"
+        "Нужна оплата картой.</blockquote>"
     )
 
 
@@ -142,3 +177,30 @@ def test_server_suppresses_httpx_request_urls(monkeypatch: pytest.MonkeyPatch) -
         assert logger.level == logging.WARNING
     finally:
         logger.setLevel(previous_level)
+
+
+def test_inbox_requires_one_source_unless_all_is_explicit() -> None:
+    with pytest.raises(ValueError, match="chat is required"):
+        _inbox_source(None, "source")
+    assert _inbox_source("other_source", "source") == "other_source"
+    assert _inbox_source(None, "all") is None
+    with pytest.raises(ValueError, match="combine"):
+        _inbox_source("other_source", "all")
+
+
+def test_inbox_project_scope_maps_to_all_owned_sources() -> None:
+    from herald.config import CaptureChat, CaptureConfig, Config
+
+    config = Config(
+        platforms={}, routes={}, projects={},
+        capture=CaptureConfig(chats=(
+            CaptureChat(-100, "project_a", 1, "project_a"),
+            CaptureChat(-100, "project_a_notes", 2, "project_a"),
+            CaptureChat(-100, "other_source", 3, "other_source"),
+        )),
+    )
+    assert _inbox_filter(
+        config, project="project_a", chat=None, scope="project"
+    ) == ("project_a", "project_a_notes")
+    with pytest.raises(ValueError, match="project is required"):
+        _inbox_filter(config, project=None, chat=None, scope="project")

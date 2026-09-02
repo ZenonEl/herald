@@ -18,10 +18,14 @@ from herald.config import (
     Config,
     ConfigError,
     PlatformConfig,
+    WatchConfig,
+    WatchProfile,
+    WatchSource,
     load_config,
 )
 from herald.inbox import Inbox
 from herald.telegram import TelegramError
+from herald.watch import WatchStore
 
 
 CHAT = CaptureChat(chat_id=-100, slug="work")
@@ -67,6 +71,7 @@ class FakeSource:
         self.downloads: list[str] = []
         self.fail = False
         self.factor = 1
+        self.sent: list[tuple] = []
 
     def get_updates(self, offset: int, timeout: int = 50, limit: int = 100) -> list[dict]:
         return self.updates
@@ -86,6 +91,10 @@ class FakeSource:
 
     def identity(self) -> int:
         return 999
+
+    def send(self, destination, content) -> int:
+        self.sent.append((destination, content))
+        return 500 + len(self.sent)
 
 
 def test_forwarded_message_keeps_the_original_author() -> None:
@@ -129,10 +138,10 @@ def test_photo_takes_the_largest_rendition() -> None:
 
 def test_caption_becomes_text() -> None:
     captured = normalize(
-        update(1, text=None, caption="список озон", document={"file_id": "d1"})["message"],
+        update(1, text=None, caption="список товаров", document={"file_id": "d1"})["message"],
         CHAT,
     )
-    assert captured.text == "список озон"
+    assert captured.text == "список товаров"
     assert captured.media_kind == "document"
 
 
@@ -140,21 +149,21 @@ def test_reply_keeps_the_parent_snapshot_and_exact_quote() -> None:
     parent = update(
         40,
         date=1785999000,
-        message_thread_id=1366,
+        message_thread_id=41,
         text="Сначала согласовать смету, потом закупать.",
         **{
             "from": {
                 "id": 55,
-                "first_name": "Тимур",
-                "last_name": "Кадыров",
-                "username": "timur",
+                "first_name": "Example",
+                "last_name": "User",
+                "username": "example_user",
                 "is_bot": False,
             }
         },
     )["message"]
     message = update(
         41,
-        message_thread_id=1366,
+        message_thread_id=41,
         reply_to_message=parent,
         quote={"text": "согласовать смету", "position": 8, "is_manual": True},
     )["message"]
@@ -165,11 +174,11 @@ def test_reply_keeps_the_parent_snapshot_and_exact_quote() -> None:
         "kind": "message",
         "chat_id": -100,
         "message_id": 40,
-        "topic_id": 1366,
+        "topic_id": 41,
         "date": "2026-08-06T06:50:00+00:00",
         "author_id": 55,
-        "author_name": "Тимур Кадыров",
-        "author_username": "timur",
+        "author_name": "Example User",
+        "author_username": "example_user",
         "origin_type": None,
         "origin_id": None,
         "origin_name": None,
@@ -192,7 +201,7 @@ def test_external_reply_keeps_origin_quote_and_media_metadata() -> None:
                 "origin": {
                     "type": "user",
                     "date": 1785999000,
-                    "sender_user": {"id": 55, "first_name": "Тимур"},
+                    "sender_user": {"id": 55, "first_name": "Example"},
                 },
                 "chat": {"id": -200, "title": "Другой чат"},
                 "message_id": 9,
@@ -210,7 +219,7 @@ def test_external_reply_keeps_origin_quote_and_media_metadata() -> None:
     assert context["kind"] == "external"
     assert context["chat_id"] == -200
     assert context["message_id"] == 9
-    assert context["origin_name"] == "Тимур"
+    assert context["origin_name"] == "Example"
     assert context["quote"]["text"] == "Срок — пятница"
     assert context["media"]["file_name"] == "brief.pdf"
 
@@ -224,27 +233,133 @@ def test_collect_skips_chats_that_are_not_listed(tmp_path: Path) -> None:
     assert highest == 1001
 
 
+def test_one_poll_routes_watch_dm_without_putting_it_in_capture(
+    tmp_path: Path,
+) -> None:
+    capture, inbox = build(tmp_path)
+    watch = WatchStore(inbox)
+    watch.prepare()
+    capture.watch = watch
+    capture.config = replace(
+        capture.config,
+        watch=WatchConfig(
+            enabled=True,
+            sources={"owner": WatchSource(7, 7)},
+            profiles={
+                "alpha": WatchProfile(("alpha",), "owner", "alpha")
+            },
+        ),
+    )
+    capture._loader = lambda: capture.config
+    duty = watch.start(
+        capture.config,
+        profiles=["alpha"],
+        primary_profile=None,
+        agent="Codex",
+        model="GPT",
+        session_name="alpha",
+    )
+    direct = update(1, text="#alpha Проверь задачу")
+    direct["message"]["chat"] = {"id": 7, "type": "private"}
+    capture.source.updates = [direct]
+
+    assert capture.cycle(timeout=0) == 1
+    assert inbox.fetch(None, None, None, 10, mark=False) == []
+    assert watch.wait(duty["duty_id"], timeout=0)["text"] == "Проверь задачу"
+
+
+def test_watch_help_replies_to_allowed_owner_without_creating_delivery(
+    tmp_path: Path,
+) -> None:
+    capture, inbox = build(tmp_path)
+    watch = WatchStore(inbox)
+    watch.prepare()
+    capture.watch = watch
+    capture.config = replace(
+        capture.config,
+        watch=WatchConfig(
+            enabled=True,
+            sources={"owner": WatchSource(7, 7)},
+            profiles={
+                "alpha": WatchProfile(("101", "alpha"), "owner", "alpha")
+            },
+        ),
+    )
+    capture._loader = lambda: capture.config
+    direct = update(2, text="/help")
+    direct["message"]["chat"] = {"id": 7, "type": "private"}
+    capture.source.updates = [direct]
+
+    assert capture.cycle(timeout=0) == 0
+    assert len(capture.source.sent) == 1
+    help_message = capture.source.sent[0][1]
+    assert help_message.format == "html"
+    assert "<code>alpha</code>" in help_message.text
+    assert "<code>#101</code>, <code>#alpha</code>" in help_message.text
+    assert "<code>#all Дайте краткий статус</code>" in help_message.text
+    assert "Покажи inbox проекта" in help_message.text
+    assert len(help_message.text) <= 3_800
+    duty = watch.start(
+        capture.config, profiles=["alpha"], primary_profile=None,
+        agent="Codex", model="GPT", session_name="alpha",
+    )
+    assert watch.wait(duty["duty_id"], timeout=0) is None
+
+    unauthorized = update(3, text="/help", **{"from": {"id": 99}})
+    unauthorized["message"]["chat"] = {"id": 99, "type": "private"}
+    capture.source.updates = [unauthorized]
+    assert capture.cycle(timeout=0) == 0
+    assert len(capture.source.sent) == 1
+
+
+def test_watch_start_is_short_and_separate_from_help(tmp_path: Path) -> None:
+    capture, inbox = build(tmp_path)
+    watch = WatchStore(inbox)
+    watch.prepare()
+    capture.watch = watch
+    capture.config = replace(
+        capture.config,
+        watch=WatchConfig(
+            enabled=True,
+            sources={"owner": WatchSource(7, 7)},
+            profiles={
+                "alpha": WatchProfile(("alpha",), "owner", "alpha")
+            },
+        ),
+    )
+    capture._loader = lambda: capture.config
+    direct = update(4, text="/start")
+    direct["message"]["chat"] = {"id": 7, "type": "private"}
+    capture.source.updates = [direct]
+
+    assert capture.cycle(timeout=0) == 0
+    start_text = capture.source.sent[0][1].text
+    assert "Herald готов" in start_text
+    assert "/help" in start_text
+    assert "Доступные профили" not in start_text
+
+
 def test_collect_keeps_only_the_listed_topic(tmp_path: Path) -> None:
-    topic = CaptureChat(chat_id=-100, topic_id=1366, slug="topic_1366")
+    topic = CaptureChat(chat_id=-100, topic_id=41, slug="topic_41")
     capture, _ = build(tmp_path)
     capture.config = replace(
         capture.config, capture=replace(capture.settings, chats=(topic,))
     )
 
     collected, _ = capture.collect([
-        update(1, message_thread_id=1366),
-        update(2, message_thread_id=2599),
+        update(1, message_thread_id=41),
+        update(2, message_thread_id=42),
         update(3),
     ])
 
     assert [message.message_id for message in collected] == [1]
-    assert collected[0].chat_slug == "topic_1366"
+    assert collected[0].chat_slug == "topic_41"
 
 
 def test_two_topics_in_one_chat_use_separate_slugs(tmp_path: Path) -> None:
     topics = (
-        CaptureChat(chat_id=-100, topic_id=1366, slug="topic_1366"),
-        CaptureChat(chat_id=-100, topic_id=2599, slug="topic_2599"),
+        CaptureChat(chat_id=-100, topic_id=41, slug="topic_41"),
+        CaptureChat(chat_id=-100, topic_id=42, slug="topic_42"),
     )
     capture, _ = build(tmp_path)
     capture.config = replace(
@@ -252,27 +367,27 @@ def test_two_topics_in_one_chat_use_separate_slugs(tmp_path: Path) -> None:
     )
 
     collected, _ = capture.collect([
-        update(1, message_thread_id=1366),
-        update(2, message_thread_id=2599),
+        update(1, message_thread_id=41),
+        update(2, message_thread_id=42),
     ])
 
     assert [message.chat_slug for message in collected] == [
-        "topic_1366",
-        "topic_2599",
+        "topic_41",
+        "topic_42",
     ]
 
 
 def test_whole_chat_target_still_keeps_topic_messages(tmp_path: Path) -> None:
     capture, _ = build(tmp_path)
 
-    collected, _ = capture.collect([update(1, message_thread_id=1366)])
+    collected, _ = capture.collect([update(1, message_thread_id=41)])
 
     assert len(collected) == 1
     assert collected[0].chat_slug == "work"
 
 
 def test_reply_backfills_an_old_parent_from_the_allowed_topic(tmp_path: Path) -> None:
-    topic = CaptureChat(chat_id=-100, topic_id=1366, slug="metal_174")
+    topic = CaptureChat(chat_id=-100, topic_id=41, slug="project_topic")
     capture, _ = build(tmp_path)
     capture.config = replace(
         capture.config, capture=replace(capture.settings, chats=(topic,))
@@ -280,18 +395,18 @@ def test_reply_backfills_an_old_parent_from_the_allowed_topic(tmp_path: Path) ->
     parent = update(
         40,
         date=1785999000,
-        message_thread_id=1366,
+        message_thread_id=41,
         text="Старое важное сообщение",
         document={"file_id": "old-file", "file_name": "old.pdf", "file_size": 7},
     )["message"]
 
     collected, _ = capture.collect([
-        update(41, message_thread_id=1366, reply_to_message=parent)
+        update(41, message_thread_id=41, reply_to_message=parent)
     ])
 
     assert [message.message_id for message in collected] == [40, 41]
     assert collected[0].text == "Старое важное сообщение"
-    assert collected[0].chat_slug == "metal_174"
+    assert collected[0].chat_slug == "project_topic"
     assert collected[1].reply_to == 40
     assert collected[1].reply_context["text"] == "Старое важное сообщение"
     resolved = capture.download_media(collected)
@@ -302,17 +417,17 @@ def test_reply_backfills_an_old_parent_from_the_allowed_topic(tmp_path: Path) ->
 def test_reply_does_not_backfill_a_parent_from_an_unlisted_topic(
     tmp_path: Path,
 ) -> None:
-    topic = CaptureChat(chat_id=-100, topic_id=1366, slug="metal_174")
+    topic = CaptureChat(chat_id=-100, topic_id=41, slug="project_topic")
     capture, _ = build(tmp_path)
     capture.config = replace(
         capture.config, capture=replace(capture.settings, chats=(topic,))
     )
-    parent = update(40, message_thread_id=2599, text="Чужой топик")["message"]
+    parent = update(40, message_thread_id=42, text="Чужой топик")["message"]
 
     collected, _ = capture.collect([
         update(
             41,
-            message_thread_id=1366,
+            message_thread_id=41,
             reply_to_message=parent,
             quote={"text": "видимая цитата", "position": 0},
         )
@@ -571,20 +686,20 @@ enabled = true
 
 [[capture.chats]]
 id = -100
-topic_id = 1366
-slug = "topic_1366"
+topic_id = 41
+slug = "topic_41"
 
 [[capture.chats]]
 id = -100
-topic_id = 2599
-slug = "topic_2599"
+topic_id = 42
+slug = "topic_42"
 """,
         encoding="utf-8",
     )
 
     loaded = load_config(config)
 
-    assert [chat.topic_id for chat in loaded.capture.chats] == [1366, 2599]
+    assert [chat.topic_id for chat in loaded.capture.chats] == [41, 42]
 
 
 def test_config_refuses_a_whole_chat_mixed_with_one_of_its_topics(
@@ -606,8 +721,8 @@ slug = "whole_chat"
 
 [[capture.chats]]
 id = -100
-topic_id = 1366
-slug = "topic_1366"
+topic_id = 41
+slug = "topic_41"
 """,
         encoding="utf-8",
     )

@@ -44,7 +44,7 @@ def test_reply_context_round_trips_as_an_object(inbox: Inbox) -> None:
     context = {
         "kind": "message",
         "message_id": 9,
-        "author_name": "Тимур Кадыров",
+        "author_name": "Example User",
         "text": "Срок — пятница",
         "quote": {"text": "пятница", "position": 7, "is_manual": True},
     }
@@ -79,6 +79,21 @@ def test_fetch_filters_by_chat_and_range(inbox: Inbox) -> None:
     )
     found = inbox.fetch("work", "2026-08-12T10:00:00+00:00", None, 10)
     assert [row["message_id"] for row in found] == [2]
+
+
+def test_fetch_and_status_accept_a_project_source_set(inbox: Inbox) -> None:
+    inbox.store([
+        message(1, chat_slug="project_a"),
+        message(2, chat_slug="project_a_notes"),
+        message(3, chat_slug="project_b"),
+    ])
+
+    found = inbox.fetch(("project_a", "project_a_notes"), None, None, 10, mark=False)
+
+    assert [row["message_id"] for row in found] == [1, 2]
+    assert {row["chat_slug"] for row in inbox.status(("project_a", "project_a_notes"))["pending"]} == {
+        "project_a", "project_a_notes"
+    }
 
 
 def test_until_on_a_bare_date_keeps_that_whole_day(inbox: Inbox) -> None:
@@ -275,7 +290,7 @@ def test_export_bundle_keeps_structured_reply_context(
     context = {
         "kind": "message",
         "message_id": 8,
-        "author_name": "Тимур Кадыров",
+        "author_name": "Example User",
         "text": "Исходный текст",
         "quote": {"text": "текст", "position": 9, "is_manual": False},
     }

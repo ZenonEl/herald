@@ -1,6 +1,6 @@
 {
   "name": "herald",
-  "version": "0.7.0",
+  "version": "0.8.0-beta.1",
   "description": "Локальный MCP-канал между AI-ассистентами и Telegram: готовые сообщения, файлы и захват рабочих топиков",
   "author": {
     "name": "ZenonEl",
@@ -45,7 +45,8 @@
     "defaultPrompt": [
       "Отправь краткий клиентский ответ через Herald.",
       "Покажи настроенные проекты и Telegram-топики.",
-      "Проверь, какие сообщения накопились в Herald."
+      "Проверь, какие сообщения накопились в Herald.",
+      "Включи адресное дежурство Herald для этой сессии."
     ],
     "websiteURL": "https://github.com/ZenonEl/herald",
     "screenshots": []

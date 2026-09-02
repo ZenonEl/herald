@@ -3,6 +3,24 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.8.0-beta.1] — 2026-09-02
+
+### Добавлено
+
+- beta-режим Watch для адресной связи с уже открытыми Claude/Codex-сессиями;
+- профили с несколькими тегами, явным владельцем, маршрутом ответа и реакциями;
+- изолированные `duty_id`: обычная сессия получает только адресованные ей
+  сообщения, а общий просмотр требует отдельного разрешения;
+- общий Telegram polling для Capture и Watch без второго конкурирующего демона;
+- ответы на сообщения через Telegram reply с цитатным fallback;
+- проектная область capture-inbox по умолчанию;
+- обычные и сворачиваемые Telegram-цитаты в `send_client_copy`, с правилами,
+  запрещающими прятать в них вопросы, блокеры и обязательные факты.
+
+### Исправлено
+
+- служебные строки Claude `<summary>` и `<invoke>` больше не попадают в Telegram.
+
 ## [0.7.0] — 2026-08-26
 
 ### Добавлено
@@ -100,6 +118,7 @@
 - локальный capture-буфер и экспорт для Mnemo;
 - двойное лицензирование AGPL-3.0-or-later и CC BY-SA 4.0.
 
+[0.8.0-beta.1]: https://github.com/ZenonEl/herald/compare/v0.7.0...v0.8.0-beta.1
 [0.7.0]: https://github.com/ZenonEl/herald/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ZenonEl/herald/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/ZenonEl/herald/compare/v0.5.2...v0.5.3

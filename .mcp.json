@@ -1,11 +1,13 @@
 {
-  "herald": {
-    "command": "uv",
-    "args": [
-      "run",
-      "--directory",
-      "${CLAUDE_PLUGIN_ROOT}",
-      "herald"
-    ]
+  "mcpServers": {
+    "herald": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${CLAUDE_PLUGIN_ROOT}",
+        "herald"
+      ]
+    }
   }
 }

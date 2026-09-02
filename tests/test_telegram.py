@@ -1,8 +1,9 @@
 import httpx
+import json
 import pytest
 
 from herald.config import ConfigError
-from herald.domain import Attachment, Destination, FormattedText
+from herald.domain import Attachment, Destination, FormattedText, ReplyTarget
 from herald.telegram import TelegramAdapter, TelegramError
 
 
@@ -151,3 +152,65 @@ def test_send_non_image_as_document(monkeypatch, tmp_path) -> None:
         Attachment(document, "auto"),
         FormattedText("Отчёт", "plain"),
     ) == 102
+
+
+def test_external_reply_uses_reply_parameters(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BOT_TOKEN", "secret")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.read())
+        assert payload["chat_id"] == "-1001"
+        assert payload["reply_parameters"] == {"message_id": 55, "chat_id": "7"}
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 103}})
+
+    adapter = TelegramAdapter(
+        "BOT_TOKEN", client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    result = adapter.send_reply(
+        Destination("-1001", 42),
+        FormattedText("Ответ", "plain"),
+        ReplyTarget("7", 55),
+        FormattedText("Fallback", "plain"),
+    )
+
+    assert result == (103, "external")
+
+
+def test_rejected_reply_falls_back_but_network_error_does_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BOT_TOKEN", "secret")
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(400, json={"ok": False, "description": "reply not found"})
+        assert json.loads(request.read())["text"] == "Fallback"
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 104}})
+
+    adapter = TelegramAdapter(
+        "BOT_TOKEN", client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    assert adapter.send_reply(
+        Destination("1"), FormattedText("Ответ", "plain"),
+        ReplyTarget("1", 55), FormattedText("Fallback", "plain"),
+    ) == (104, "quoted_fallback")
+    assert calls == 2
+
+    failing_calls = 0
+    def fail(request: httpx.Request) -> httpx.Response:
+        nonlocal failing_calls
+        failing_calls += 1
+        raise httpx.ConnectError("lost", request=request)
+
+    broken = TelegramAdapter(
+        "BOT_TOKEN", client=httpx.Client(transport=httpx.MockTransport(fail))
+    )
+    with pytest.raises(TelegramError):
+        broken.send_reply(
+            Destination("1"), FormattedText("Ответ", "plain"),
+            ReplyTarget("1", 55), FormattedText("Fallback", "plain"),
+        )
+    assert failing_calls == 1

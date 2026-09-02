@@ -1,6 +1,7 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 from pathlib import Path
+import re
 import tomllib
 from typing import Any, Mapping
 
@@ -45,6 +46,7 @@ class CaptureChat:
     chat_id: int
     slug: str
     topic_id: int | None = None
+    project: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +71,45 @@ class CaptureConfig:
                 whole_chat = entry
         return whole_chat
 
+    def for_project(self, project: str) -> tuple[CaptureChat, ...]:
+        return tuple(entry for entry in self.chats if entry.project == project)
+
+
+@dataclass(frozen=True, slots=True)
+class WatchSource:
+    chat_id: int
+    user_id: int
+
+
+@dataclass(frozen=True, slots=True)
+class WatchProfile:
+    tags: tuple[str, ...]
+    source: str
+    project: str
+    reply_route: str | None = None
+    response_format: str = "brief"
+    reply_context: str = "native_or_quote"
+    reaction_claimed: str | None = "👀"
+    reaction_done: str | None = "👍"
+    reaction_failed: str | None = "❌"
+    instructions: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class WatchConfig:
+    enabled: bool = False
+    platform: str = "telegram"
+    allow_inspect_all: bool = False
+    sources: Mapping[str, WatchSource] = field(default_factory=dict)
+    profiles: Mapping[str, WatchProfile] = field(default_factory=dict)
+
+    def profile_for_tag(self, tag: str) -> str | None:
+        needle = tag.removeprefix("#").casefold()
+        for name, profile in self.profiles.items():
+            if needle in {item.casefold() for item in profile.tags}:
+                return name
+        return None
+
 
 @dataclass(frozen=True, slots=True)
 class Config:
@@ -77,6 +118,7 @@ class Config:
     projects: Mapping[str, ProjectConfig]
     files: FilePolicy = FilePolicy()
     capture: CaptureConfig = CaptureConfig()
+    watch: WatchConfig = WatchConfig()
 
 
 def config_path() -> Path:
@@ -149,6 +191,7 @@ def load_config(path: Path | None = None) -> Config:
             max_bytes=max_bytes,
         )
         capture = _capture(raw.get("capture"))
+        watch = _watch(raw.get("watch"))
     except KeyError as error:
         raise ConfigError(f"Missing config key: {error.args[0]}") from error
 
@@ -181,7 +224,39 @@ def load_config(path: Path | None = None) -> Config:
             "capture.enabled is true but no [[capture.chats]] are listed; "
             "membership in a group is not consent to log it"
         )
-    if not routes and not capture.enabled:
+    for chat in capture.chats:
+        if chat.project is not None and chat.project not in projects:
+            raise ConfigError(
+                f"capture chat {chat.slug!r} references unknown project "
+                f"{chat.project!r}"
+            )
+    if watch.enabled and watch.platform not in platforms:
+        raise ConfigError(
+            f"watch.platform references unknown platform {watch.platform!r}"
+        )
+    if watch.enabled and not watch.sources:
+        raise ConfigError("watch.enabled is true but [watch.sources] is empty")
+    if watch.enabled and not watch.profiles:
+        raise ConfigError("watch.enabled is true but [watch.profiles] is empty")
+    if capture.enabled and watch.enabled and capture.platform != watch.platform:
+        raise ConfigError("capture.platform and watch.platform must be the same")
+    for profile_name, profile in watch.profiles.items():
+        if profile.source not in watch.sources:
+            raise ConfigError(
+                f"watch.profiles.{profile_name}.source references unknown source "
+                f"{profile.source!r}"
+            )
+        if profile.project not in projects:
+            raise ConfigError(
+                f"watch.profiles.{profile_name}.project references unknown project "
+                f"{profile.project!r}"
+            )
+        if profile.reply_route is not None and profile.reply_route not in routes:
+            raise ConfigError(
+                f"watch.profiles.{profile_name}.reply_route references unknown route "
+                f"{profile.reply_route!r}"
+            )
+    if not routes and not capture.enabled and not watch.enabled:
         raise ConfigError(
             "Nothing is configured: add [routes] and [projects] to send, "
             "or [capture] to log chats"
@@ -192,6 +267,100 @@ def load_config(path: Path | None = None) -> Config:
         projects=projects,
         files=files,
         capture=capture,
+        watch=watch,
+    )
+
+
+_WATCH_TAG = re.compile(r"^[A-Za-z0-9_]+$")
+
+
+def _watch(raw: Any) -> WatchConfig:
+    if raw is None:
+        return WatchConfig()
+    if not isinstance(raw, dict):
+        raise ConfigError("[watch] must be a table")
+    defaults = WatchConfig()
+    sources_raw = raw.get("sources", {})
+    profiles_raw = raw.get("profiles", {})
+    if not isinstance(sources_raw, dict) or not all(
+        isinstance(item, dict) for item in sources_raw.values()
+    ):
+        raise ConfigError("[watch.sources] must contain tables")
+    if not isinstance(profiles_raw, dict) or not all(
+        isinstance(item, dict) for item in profiles_raw.values()
+    ):
+        raise ConfigError("[watch.profiles] must contain tables")
+
+    sources: dict[str, WatchSource] = {}
+    for name, entry in sources_raw.items():
+        sources[name] = WatchSource(
+            chat_id=_required_int(entry.get("chat_id"), f"watch.sources.{name}.chat_id"),
+            user_id=_required_int(entry.get("user_id"), f"watch.sources.{name}.user_id"),
+        )
+
+    profiles: dict[str, WatchProfile] = {}
+    seen_tags: dict[str, str] = {}
+    for name, entry in profiles_raw.items():
+        tags_raw = entry.get("tags")
+        if not isinstance(tags_raw, list) or not tags_raw:
+            raise ConfigError(f"watch.profiles.{name}.tags must be a non-empty array")
+        tags: list[str] = []
+        for raw_tag in tags_raw:
+            if not isinstance(raw_tag, str):
+                raise ConfigError(f"watch.profiles.{name}.tags must contain strings")
+            tag = raw_tag.strip().removeprefix("#")
+            if not _WATCH_TAG.fullmatch(tag) or tag.casefold() == "all":
+                raise ConfigError(
+                    f"watch.profiles.{name} has invalid or reserved tag {raw_tag!r}"
+                )
+            folded = tag.casefold()
+            owner = seen_tags.get(folded)
+            if owner is not None:
+                raise ConfigError(
+                    f"watch tag {tag!r} is used by both {owner!r} and {name!r}"
+                )
+            seen_tags[folded] = name
+            tags.append(tag)
+        response_format = _optional_string(
+            entry.get("response_format"), f"watch.profiles.{name}.response_format"
+        ) or "brief"
+        if response_format not in {"brief", "standard", "detailed"}:
+            raise ConfigError(
+                f"watch.profiles.{name}.response_format must be brief, standard, or detailed"
+            )
+        reply_context = _optional_string(
+            entry.get("reply_context"), f"watch.profiles.{name}.reply_context"
+        ) or "native_or_quote"
+        if reply_context not in {"native_or_quote", "native_only", "none"}:
+            raise ConfigError(
+                f"watch.profiles.{name}.reply_context must be native_or_quote, "
+                "native_only, or none"
+            )
+        profiles[name] = WatchProfile(
+            tags=tuple(tags),
+            source=_string(entry, "source", f"watch.profiles.{name}"),
+            project=_string(entry, "project", f"watch.profiles.{name}"),
+            reply_route=_optional_string(
+                entry.get("reply_route"), f"watch.profiles.{name}.reply_route"
+            ),
+            response_format=response_format,
+            reply_context=reply_context,
+            reaction_claimed=_reaction(entry, "reaction_claimed", "👀", name),
+            reaction_done=_reaction(entry, "reaction_done", "👍", name),
+            reaction_failed=_reaction(entry, "reaction_failed", "❌", name),
+            instructions=str(entry.get("instructions") or "").strip(),
+        )
+    return WatchConfig(
+        enabled=_flag(raw.get("enabled"), "watch.enabled", defaults.enabled),
+        platform=_optional_string(raw.get("platform"), "watch.platform")
+        or defaults.platform,
+        allow_inspect_all=_flag(
+            raw.get("allow_inspect_all"),
+            "watch.allow_inspect_all",
+            defaults.allow_inspect_all,
+        ),
+        sources=sources,
+        profiles=profiles,
     )
 
 
@@ -237,7 +406,16 @@ def _capture(raw: Any) -> CaptureConfig:
             raise ConfigError(f"capture.chats reuses slug {slug!r}")
         seen_targets.add(target)
         seen_slugs.add(slug)
-        chats.append(CaptureChat(chat_id=chat_id, slug=slug, topic_id=topic_id))
+        chats.append(
+            CaptureChat(
+                chat_id=chat_id,
+                slug=slug,
+                topic_id=topic_id,
+                project=_optional_string(
+                    entry.get("project"), f"capture.chats[{index}].project"
+                ),
+            )
+        )
     return CaptureConfig(
         enabled=_flag(raw.get("enabled"), "capture.enabled", defaults.enabled),
         platform=_optional_string(raw.get("platform"), "capture.platform")
@@ -277,6 +455,23 @@ def _positive_int(value: Any, key: str, fallback: int) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise ConfigError(f"{key} must be a positive integer")
     return value
+
+
+def _required_int(value: Any, key: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ConfigError(f"{key} must be a positive integer")
+    return value
+
+
+def _reaction(
+    raw: Mapping[str, Any], key: str, default: str, profile: str
+) -> str | None:
+    value = raw.get(key, default)
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(f"watch.profiles.{profile}.{key} must be a string or null")
+    return value.strip()
 
 
 def _optional_table(raw: Mapping[str, Any], key: str) -> Mapping[str, Mapping[str, Any]]:

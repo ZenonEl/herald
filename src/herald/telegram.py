@@ -1,12 +1,19 @@
 import os
 import mimetypes
+import json
 from pathlib import Path
 from html.parser import HTMLParser
 
 import httpx
 
 from herald.config import ConfigError
-from herald.domain import Attachment, Destination, FormattedText
+from herald.domain import (
+    Attachment,
+    Destination,
+    FormattedText,
+    ReplyMode,
+    ReplyTarget,
+)
 
 
 class TelegramError(RuntimeError):
@@ -43,38 +50,31 @@ class TelegramAdapter:
         self._api_base = api_base.rstrip("/")
 
     def send(self, destination: Destination, content: FormattedText) -> int:
-        token = self._read_token()
-
-        length = _rendered_length(content)
-        if length > MAX_MESSAGE_LENGTH:
-            raise TelegramError(
-                f"Message is {length} characters after formatting; "
-                f"Telegram allows {MAX_MESSAGE_LENGTH}. Shorten it or split it into parts."
-            )
-
-        payload: dict[str, str | int] = {
-            "chat_id": destination.chat_id,
-            "text": content.text,
-        }
-        if content.format == "html":
-            payload["parse_mode"] = "HTML"
-        if destination.topic_id is not None:
-            payload["message_thread_id"] = destination.topic_id
-
-        try:
-            response = self._client.post(
-                f"{self._api_base}/bot{token}/sendMessage",
-                json=payload,
-            )
-            body = response.json()
-        except httpx.HTTPError as error:
-            raise TelegramError(
-                f"Telegram request failed: {type(error).__name__}"
-            ) from error
-        except ValueError as error:
-            raise TelegramError("Telegram returned an invalid JSON response") from error
-
+        response, body = self._send_text(destination, content)
         return _message_id(response, body)
+
+    def send_reply(
+        self,
+        destination: Destination,
+        content: FormattedText,
+        target: ReplyTarget,
+        fallback: FormattedText,
+    ) -> tuple[int, ReplyMode]:
+        response, body = self._send_text(
+            destination, content, reply_parameters=_reply_parameters(destination, target)
+        )
+        if body.get("ok"):
+            mode: ReplyMode = (
+                "native"
+                if target.chat_id == destination.chat_id
+                and target.topic_id == destination.topic_id
+                else "external"
+            )
+            return _message_id(response, body), mode
+        # Telegram explicitly rejected the request, so it was not delivered.
+        # Network ambiguity is raised by _send_text and never reaches fallback.
+        fallback_response, fallback_body = self._send_text(destination, fallback)
+        return _message_id(fallback_response, fallback_body), "quoted_fallback"
 
     def send_file(
         self,
@@ -82,6 +82,80 @@ class TelegramAdapter:
         attachment: Attachment,
         caption: FormattedText,
     ) -> int:
+        response, body = self._send_attachment(destination, attachment, caption)
+        return _message_id(response, body)
+
+    def send_file_reply(
+        self,
+        destination: Destination,
+        attachment: Attachment,
+        caption: FormattedText,
+        target: ReplyTarget,
+        fallback: FormattedText,
+    ) -> tuple[int, ReplyMode]:
+        response, body = self._send_attachment(
+            destination,
+            attachment,
+            caption,
+            reply_parameters=_reply_parameters(destination, target),
+        )
+        if body.get("ok"):
+            mode: ReplyMode = (
+                "native"
+                if target.chat_id == destination.chat_id
+                and target.topic_id == destination.topic_id
+                else "external"
+            )
+            return _message_id(response, body), mode
+        fallback_response, fallback_body = self._send_attachment(
+            destination, attachment, fallback
+        )
+        return _message_id(fallback_response, fallback_body), "quoted_fallback"
+
+    def _send_text(
+        self,
+        destination: Destination,
+        content: FormattedText,
+        *,
+        reply_parameters: dict | None = None,
+    ) -> tuple[httpx.Response, dict]:
+        length = _rendered_length(content)
+        if length > MAX_MESSAGE_LENGTH:
+            raise TelegramError(
+                f"Message is {length} characters after formatting; "
+                f"Telegram allows {MAX_MESSAGE_LENGTH}. Shorten it or split it into parts."
+            )
+        payload: dict[str, object] = {
+            "chat_id": destination.chat_id,
+            "text": content.text,
+        }
+        if content.format == "html":
+            payload["parse_mode"] = "HTML"
+        if destination.topic_id is not None:
+            payload["message_thread_id"] = destination.topic_id
+        if reply_parameters is not None:
+            payload["reply_parameters"] = reply_parameters
+        token = self._read_token()
+        try:
+            response = self._client.post(
+                f"{self._api_base}/bot{token}/sendMessage", json=payload
+            )
+            return response, response.json()
+        except httpx.HTTPError as error:
+            raise TelegramError(
+                f"Telegram request failed: {type(error).__name__}"
+            ) from error
+        except ValueError as error:
+            raise TelegramError("Telegram returned an invalid JSON response") from error
+
+    def _send_attachment(
+        self,
+        destination: Destination,
+        attachment: Attachment,
+        caption: FormattedText,
+        *,
+        reply_parameters: dict | None = None,
+    ) -> tuple[httpx.Response, dict]:
         length = _rendered_length(caption)
         if length > MAX_CAPTION_LENGTH:
             raise TelegramError(
@@ -108,6 +182,8 @@ class TelegramAdapter:
             data["parse_mode"] = "HTML"
         if destination.topic_id is not None:
             data["message_thread_id"] = destination.topic_id
+        if reply_parameters is not None:
+            data["reply_parameters"] = json.dumps(reply_parameters)
         mime = (
             mimetypes.guess_type(attachment.path.name)[0]
             or "application/octet-stream"
@@ -126,7 +202,7 @@ class TelegramAdapter:
             ) from error
         except ValueError as error:
             raise TelegramError("Telegram returned an invalid JSON response") from error
-        return _message_id(response, body)
+        return response, body
 
     def get_updates(self, offset: int, timeout: int = 50, limit: int = 100) -> list[dict]:
         """Long-poll for updates. Only one client may do this per bot token."""
@@ -245,6 +321,30 @@ class TelegramAdapter:
             )
         return int(body["result"]["id"])
 
+    def set_reaction(self, chat_id: int, message_id: int, emoji: str | None) -> None:
+        payload: dict[str, object] = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "reaction": [{"type": "emoji", "emoji": emoji}] if emoji else [],
+        }
+        token = self._read_token()
+        try:
+            response = self._client.post(
+                f"{self._api_base}/bot{token}/setMessageReaction", json=payload
+            )
+            body = response.json()
+        except httpx.HTTPError as error:
+            raise TelegramError(
+                f"Telegram reaction failed: {type(error).__name__}"
+            ) from error
+        except ValueError as error:
+            raise TelegramError("Telegram returned an invalid JSON response") from error
+        if not body.get("ok"):
+            raise TelegramError(
+                "Telegram rejected the reaction: "
+                + str(body.get("description", "unknown Telegram error"))
+            )
+
     def token(self) -> str:
         return self._read_token()
 
@@ -274,6 +374,15 @@ def _rendered_length(content: FormattedText) -> int:
     counter.feed(content.text)
     counter.close()
     return counter.length
+
+
+def _reply_parameters(
+    destination: Destination, target: ReplyTarget
+) -> dict[str, str | int]:
+    parameters: dict[str, str | int] = {"message_id": target.message_id}
+    if target.chat_id != destination.chat_id:
+        parameters["chat_id"] = target.chat_id
+    return parameters
 
 
 def _message_id(response: httpx.Response, body: dict) -> int:

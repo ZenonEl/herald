@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import re
 import tomllib
 
 
@@ -18,20 +19,23 @@ def test_plugin_versions_follow_package_version() -> None:
     claude_market = read_json(".claude-plugin/marketplace.json")
     codex = read_json(".codex-plugin/plugin.json")
 
-    versions = {
-        package_version,
+    plugin_versions = {
         claude["version"],
         claude_market["plugins"][0]["version"],
         codex["version"],
     }
-    assert versions == {package_version}
+    beta = re.fullmatch(r"(.+)b(\d+)", package_version)
+    plugin_version = (
+        f"{beta.group(1)}-beta.{beta.group(2)}" if beta else package_version
+    )
+    assert plugin_versions == {plugin_version}
     assert claude["name"] == codex["name"] == "herald"
 
 
 def test_both_plugins_use_the_same_skill_and_mcp_entrypoint() -> None:
     codex = read_json(".codex-plugin/plugin.json")
     codex_server = codex["mcpServers"]["herald"]
-    claude_server = read_json(".mcp.json")["herald"]
+    claude_server = read_json(".mcp.json")["mcpServers"]["herald"]
 
     assert codex["skills"] == "./skills/"
     assert codex_server == {

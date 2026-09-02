@@ -222,9 +222,23 @@ class Inbox:
                     found.add((chat_id, message_id))
         return found
 
+    def message(self, chat_id: int, message_id: int) -> dict | None:
+        """Return one stored message without changing its archival state."""
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM messages WHERE chat_id=? AND message_id=?",
+                (chat_id, message_id),
+            ).fetchone()
+        if row is None:
+            return None
+        record = dict(row)
+        if record.get("reply_context"):
+            record["reply_context"] = json.loads(record["reply_context"])
+        return record
+
     def fetch(
         self,
-        chat_slug: str | None,
+        chat_slug: str | Sequence[str] | None,
         since: str | None,
         until: str | None,
         limit: int,
@@ -243,9 +257,13 @@ class Inbox:
             "state IN ('new', 'taken')"
         ]
         values: list[object] = []
-        if chat_slug:
+        if isinstance(chat_slug, str) and chat_slug:
             clauses.append("chat_slug = ?")
             values.append(chat_slug)
+        elif chat_slug:
+            slugs = tuple(chat_slug)
+            clauses.append("chat_slug IN (" + ",".join("?" for _ in slugs) + ")")
+            values.extend(slugs)
         start = as_epoch(since)
         end = as_epoch(until, end_of_day=True)
         if start is not None:
@@ -632,22 +650,38 @@ class Inbox:
             connection.commit()
             return cursor.rowcount
 
-    def status(self) -> dict:
+    def status(self, chat_slug: str | Sequence[str] | None = None) -> dict:
         with self.connect() as connection:
+            if isinstance(chat_slug, str) and chat_slug:
+                filter_sql = " AND chat_slug=?"
+                values: list[object] = [chat_slug]
+            elif chat_slug:
+                slugs = tuple(chat_slug)
+                filter_sql = " AND chat_slug IN (" + ",".join(
+                    "?" for _ in slugs
+                ) + ")"
+                values = list(slugs)
+            else:
+                filter_sql = ""
+                values = []
             pending = connection.execute(
                 "SELECT chat_slug, state, count(*) AS messages, min(date) AS oldest, "
                 "max(date) AS newest, "
                 "sum(CASE WHEN local_path IS NOT NULL THEN 1 ELSE 0 END) AS files, "
                 "coalesce(sum(CASE WHEN local_path IS NOT NULL THEN size ELSE 0 END), 0) "
                 "AS bytes "
-                "FROM messages WHERE state != 'done' GROUP BY chat_slug, state "
-                "ORDER BY chat_slug, state"
+                f"FROM messages WHERE state != 'done'{filter_sql} "
+                "GROUP BY chat_slug, state ORDER BY chat_slug, state",
+                values,
             ).fetchall()
             done = connection.execute(
-                "SELECT count(*) AS n FROM messages WHERE state='done'"
+                f"SELECT count(*) AS n FROM messages WHERE state='done'{filter_sql}",
+                values,
             ).fetchone()["n"]
             undated = connection.execute(
-                "SELECT count(*) AS n FROM messages WHERE epoch IS NULL AND state != 'done'"
+                "SELECT count(*) AS n FROM messages WHERE epoch IS NULL "
+                f"AND state != 'done'{filter_sql}",
+                values,
             ).fetchone()["n"]
             last_poll = self._bookmark(connection, LAST_POLL_KEY)
         return {

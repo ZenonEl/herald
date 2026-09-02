@@ -1,4 +1,5 @@
 import hashlib
+from html import escape
 import os
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -11,12 +12,15 @@ import time
 from typing import Callable, Protocol
 
 from herald.config import CaptureChat, CaptureConfig, Config, ConfigError, load_config
+from herald.domain import Destination, FormattedText
 from herald.inbox import CapturedMessage, Inbox
 from herald.telegram import TelegramAdapter, TelegramError
+from herald.watch import WatchInput, WatchStore
 
 
 log = logging.getLogger("herald.capture")
 CAPTURE_LOCK_DIR = Path("~/.local/share/herald/locks").expanduser()
+WATCH_HELP_SAFE_LENGTH = 3_800
 
 MEDIA_FIELDS = (
     ("voice", "voice"),
@@ -36,6 +40,8 @@ class Source(Protocol):
     def download(self, file_id: str, target: Path) -> int: ...
 
     def identity(self) -> int: ...
+
+    def send(self, destination: Destination, content: FormattedText) -> int: ...
 
 
 def stamp(value: object) -> str:
@@ -227,12 +233,14 @@ class Capture:
         inbox: Inbox,
         bot_id: int | None = None,
         loader: Callable[[], Config] | None = None,
+        watch: WatchStore | None = None,
     ) -> None:
         self.config = config
         self.source = source
         self.inbox = inbox
         self.bot_id = bot_id
         self._loader = loader or load_config
+        self.watch = watch
 
     def reload(self) -> None:
         """Re-read the config so removing a chat takes effect without a restart.
@@ -342,6 +350,131 @@ class Capture:
             collected.append(child)
         return collected, highest
 
+    def collect_watch(self, updates: list[dict]) -> int:
+        if not self.config.watch.enabled or self.watch is None:
+            return 0
+        stored = 0
+        for update in updates:
+            payload = update.get("message")
+            if not isinstance(payload, dict):
+                continue
+            chat = payload.get("chat") or {}
+            author = payload.get("from") or {}
+            chat_id = chat.get("id")
+            user_id = author.get("id")
+            message_id = payload.get("message_id")
+            if not all(
+                isinstance(value, int) and not isinstance(value, bool)
+                for value in (chat_id, user_id, message_id)
+            ):
+                continue
+            source_name = self._watch_source_name(
+                chat_id, user_id, str(chat.get("type") or "")
+            )
+            text = payload.get("text") or payload.get("caption") or ""
+            command = _watch_bot_command(text) if source_name is not None else None
+            if command is not None:
+                response = (
+                    self._watch_help(source_name)
+                    if command == "help"
+                    else self._watch_start_message()
+                )
+                self.source.send(
+                    Destination(str(chat_id)),
+                    FormattedText(response, "html"),
+                )
+                continue
+            topic_id = payload.get("message_thread_id")
+            if not isinstance(topic_id, int) or isinstance(topic_id, bool):
+                topic_id = None
+            stored += self.watch.ingest(
+                self.config.watch,
+                WatchInput(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    user_id=user_id,
+                    chat_type=str(chat.get("type") or ""),
+                    topic_id=topic_id,
+                    text=text,
+                    date=stamp(payload.get("date")),
+                    reply_context=reply_context_of(payload),
+                ),
+            )
+        return stored
+
+    def _watch_source_name(
+        self, chat_id: int, user_id: int, chat_type: str
+    ) -> str | None:
+        if chat_type != "private":
+            return None
+        for name, source in self.config.watch.sources.items():
+            if source.chat_id == chat_id and source.user_id == user_id:
+                return name
+        return None
+
+    def _watch_help(self, source_name: str) -> str:
+        profiles = [
+            (name, profile)
+            for name, profile in self.config.watch.profiles.items()
+            if profile.source == source_name
+        ]
+        before = (
+            "<b>Herald: краткая памятка</b>\n\n"
+            "<b>Watch</b>\n"
+            "Связь через личку с уже открытыми AI-сессиями. Закрытые сессии "
+            "бот не запускает.\n\n"
+            "<b>Профиль</b>\n"
+            "Сохранённый набор тегов, проекта, маршрута ответа, формата и "
+            "инструкций дежурства.\n\n"
+            "<b>Доступные профили</b>\n"
+        )
+        after = (
+            "\n\n<b>Как включить</b>\n"
+            "В нужной AI-сессии:\n"
+            "<code>Включи дежурство Herald для профиля ИМЯ</code>\n\n"
+            "Несколько профилей:\n"
+            "<code>Включи дежурство для ПРОФИЛЬ_1 и ПРОФИЛЬ_2. "
+            "Основной для #all — ПРОФИЛЬ_1.</code>\n\n"
+            "<b>Как написать</b>\n"
+            "<code>#тег Проверь задачу</code> — одной сессии.\n"
+            "<code>#all Дайте краткий статус</code> — всем активным сессиям.\n"
+            "Ответ придёт в маршрут проекта, заданный профилем.\n\n"
+            "👀 сообщение взято · 👍 выполнено · ❌ ошибка\n\n"
+            "<b>Обычная отправка</b>\n"
+            "В AI-сессии: <code>Отправь через Herald в проект …</code> "
+            "Можно отправлять текст и разрешённые файлы.\n\n"
+            "<b>Рабочий inbox</b>\n"
+            "В AI-сессии: <code>Покажи inbox проекта …</code> "
+            "По умолчанию читаются только источники этого проекта.\n\n"
+            "<b>Остановить Watch</b>\n"
+            "В AI-сессии: <code>Выключи дежурство Herald</code>\n\n"
+            "/help — повторить памятку"
+        )
+        budget = WATCH_HELP_SAFE_LENGTH - len(before) - len(after)
+        lines: list[str] = []
+        omitted = 0
+        for name, profile in profiles:
+            tags = ", ".join(f"<code>#{escape(tag)}</code>" for tag in profile.tags)
+            line = f"• <code>{escape(name)}</code> — {tags}"
+            if len("\n".join([*lines, line])) <= budget:
+                lines.append(line)
+            else:
+                omitted += 1
+        if omitted:
+            notice = f"• … ещё {omitted}; полный список можно запросить у AI"
+            if len("\n".join([*lines, notice])) <= budget:
+                lines.append(notice)
+        if not lines:
+            lines.append("Нет профилей для этого источника.")
+        return before + "\n".join(lines) + after
+
+    @staticmethod
+    def _watch_start_message() -> str:
+        return (
+            "<b>Herald готов.</b>\n\n"
+            "Напиши /help, чтобы посмотреть профили, теги и примеры команд."
+        )
+
     def download_media(self, messages: list[CapturedMessage]) -> list[CapturedMessage]:
         if not self.settings.download_media:
             return messages
@@ -384,7 +517,7 @@ class Capture:
         makes the redelivery a no-op.
         """
         self.reload()
-        if not self.settings.enabled:
+        if not self.settings.enabled and not self.config.watch.enabled:
             # Полный отзыв согласия действует так же, как удаление чата из
             # списка: ждать рестарта здесь значит продолжать логировать после
             # того, как это запретили.
@@ -399,8 +532,12 @@ class Capture:
             return 0
         offset = self.inbox.offset()
         updates = self.source.get_updates(offset=offset, timeout=timeout)
-        messages, highest = self.collect(updates)
-        stored = self.inbox.store(self.download_media(messages))
+        highest = max((int(update.get("update_id", 0)) for update in updates), default=0)
+        stored = 0
+        if self.settings.enabled:
+            messages, _ = self.collect(updates)
+            stored += self.inbox.store(self.download_media(messages))
+        stored += self.collect_watch(updates)
         if highest:
             self.inbox.remember(highest + 1)
         else:
@@ -412,6 +549,16 @@ def _clip(text: str, budget: int) -> str:
     """Обрезать строку так, чтобы её utf-8 представление влезло в budget байт."""
     encoded = text.encode()[:max(budget, 8)]
     return encoded.decode(errors="ignore") or "file"
+
+
+def _watch_bot_command(text: str) -> str | None:
+    head = text.strip().split(maxsplit=1)[0].casefold() if text.strip() else ""
+    command = head.split("@", 1)[0]
+    if command == "/help":
+        return "help"
+    if command == "/start":
+        return "start"
+    return None
 
 
 def lock_path(token: str) -> Path:
@@ -468,16 +615,19 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     try:
         config = load_config()
-        if not config.capture.enabled:
+        if not config.capture.enabled and not config.watch.enabled:
             raise ConfigError(
-                "capture.enabled is false in the config; set it to true to start"
+                "capture.enabled and watch.enabled are false; enable at least one"
             )
-        if config.capture.platform not in config.platforms:
+        platform_name = (
+            config.capture.platform if config.capture.enabled else config.watch.platform
+        )
+        if platform_name not in config.platforms:
             raise ConfigError(
-                f"[platforms.{config.capture.platform}] is missing; capture needs "
-                "a platform with a bot token even though it never sends"
+                f"[platforms.{platform_name}] is missing; polling needs a platform "
+                "with a bot token"
             )
-        platform = config.platforms[config.capture.platform]
+        platform = config.platforms[platform_name]
         adapter = TelegramAdapter(
             token_env=platform.token_env, token_file=platform.token_file
         )
@@ -487,6 +637,8 @@ def main() -> None:
         token = adapter.token()
         inbox = Inbox(config.capture.database, config.capture.files_dir)
         inbox.prepare()
+        watch = WatchStore(inbox)
+        watch.prepare()
         lock = hold_lock(lock_path(token))
     except ConfigError as error:
         # Ошибка настройки — сообщение человеку, а не трейсбек: чинить её
@@ -502,7 +654,7 @@ def main() -> None:
     except TelegramError as error:
         log.warning("could not identify the bot yet: %s", error)
         bot_id = None
-    capture = Capture(config, adapter, inbox, bot_id=bot_id)
+    capture = Capture(config, adapter, inbox, bot_id=bot_id, watch=watch)
     running = True
 
     def stop(*_: object) -> None:
@@ -511,7 +663,11 @@ def main() -> None:
 
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
-    log.info("capture started for %d chat(s)", len(config.capture.chats))
+    log.info(
+        "telegram listener started for %d capture chat(s), %d watch source(s)",
+        len(config.capture.chats) if config.capture.enabled else 0,
+        len(config.watch.sources) if config.watch.enabled else 0,
+    )
     if args.once:
         try:
             log.info("stored %d message(s)", capture.cycle(timeout=1))

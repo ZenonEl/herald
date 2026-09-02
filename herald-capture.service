@@ -5,7 +5,7 @@
 # примерно через сутки, поэтому простой демона дольше суток означает
 # безвозвратно потерянные сообщения.
 [Unit]
-Description=herald capture: log work chats into the local buffer
+Description=herald Telegram Capture and Watch listener
 After=network-online.target
 
 [Service]
@@ -16,7 +16,8 @@ RestartSec=5
 # Демон читает только конфиг и пишет только в свой каталог данных.
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=%h/.local/share/herald
+# uv needs its cache even when the rest of the home directory is read-only.
+ReadWritePaths=%h/.local/share/herald %h/.cache/uv
 PrivateTmp=true
 NoNewPrivileges=true
 

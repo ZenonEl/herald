@@ -3,14 +3,25 @@ from dataclasses import dataclass, field
 import pytest
 
 from herald.config import Config, FilePolicy, PlatformConfig, ProjectConfig, RouteConfig
-from herald.domain import Attachment, ClientTopic, Destination, FormattedText, Message
-from herald.service import Herald, render_client_copy, render_update
+from herald.domain import (
+    Attachment,
+    ClientQuote,
+    ClientTopic,
+    Destination,
+    FormattedText,
+    Message,
+    ReplyTarget,
+)
+from herald.service import Herald, render_client_copy, render_message, render_update
 
 
 @dataclass
 class FakeMessenger:
     sent: list[tuple[Destination, FormattedText]] = field(default_factory=list)
     files: list[tuple[Destination, Attachment, FormattedText]] = field(
+        default_factory=list
+    )
+    replies: list[tuple[Destination, FormattedText, ReplyTarget, FormattedText]] = field(
         default_factory=list
     )
 
@@ -26,6 +37,10 @@ class FakeMessenger:
     ) -> int:
         self.files.append((destination, attachment, caption))
         return 456
+
+    def send_reply(self, destination, content, target, fallback):
+        self.replies.append((destination, content, target, fallback))
+        return 789, "external"
 
 
 def test_send_uses_project_route_and_renders_metadata() -> None:
@@ -69,8 +84,8 @@ def test_html_preserves_content_and_escapes_generated_metadata() -> None:
         platforms={
             "tg": PlatformConfig(type="telegram", token_env="TOKEN", token_file=None)
         },
-        routes={"flowers": RouteConfig(platform="tg", destination=destination)},
-        projects={"flowers": ProjectConfig(label="172 <Цветы>", route="flowers")},
+        routes={"example": RouteConfig(platform="tg", destination=destination)},
+        projects={"example": ProjectConfig(label="Example <Project>", route="example")},
     )
     adapter = FakeMessenger()
 
@@ -79,16 +94,56 @@ def test_html_preserves_content_and_escapes_generated_metadata() -> None:
             text="<b>Готово</b>",
             agent="Codex",
             model="GPT",
-            project="flowers",
+            project="example",
             subject="цены & остатки",
             format="html",
         )
     )
 
     assert adapter.sent[0][1] == FormattedText(
-        "<b>Готово</b>\n\n<i>— Codex · GPT · 172 &lt;Цветы&gt; · цены &amp; остатки</i>",
+        "<b>Готово</b>\n\n<i>— Codex · GPT · Example &lt;Project&gt; · цены &amp; остатки</i>",
         "html",
     )
+
+
+def test_render_message_strips_standalone_model_protocol_tags() -> None:
+    rendered = render_message(
+        Message(
+            text="Итог готов.\n&lt;/summary&gt;\n&lt;/invoke&gt;",
+            agent="claude-code",
+            model="claude",
+            project="example",
+            subject="Проверка",
+            format="html",
+        ),
+        "Проект",
+    )
+
+    assert "summary" not in rendered.text
+    assert "invoke" not in rendered.text
+    assert rendered.text.startswith("Итог готов.\n\n")
+
+
+def test_send_reply_uses_domain_target_and_reports_mode() -> None:
+    destination = Destination(chat_id="-1001", topic_id=42)
+    config = Config(
+        platforms={"tg": PlatformConfig("telegram", "TOKEN", None)},
+        routes={"work": RouteConfig("tg", destination)},
+        projects={"herald": ProjectConfig("Herald", "work")},
+    )
+    adapter = FakeMessenger()
+    target = ReplyTarget("7", 10, quote="Исходный <текст>", reference="watch:d1")
+
+    receipt = Herald(config, {"tg": adapter}).send(
+        Message("Ответ", "Codex", "GPT", "herald", "Тест", format="html"),
+        reply_to=target,
+    )
+
+    assert receipt.reply_mode == "external"
+    assert adapter.replies[0][2] == target
+    fallback = adapter.replies[0][3].text
+    assert "watch:d1" in fallback
+    assert "Исходный &lt;текст&gt;" in fallback
 
 
 def test_rejects_escaped_html_tags() -> None:
@@ -184,7 +239,7 @@ def test_render_client_copy_uses_real_topics_and_escapes_values() -> None:
     rendered = render_client_copy(
         [
             ClientTopic(
-                title="Пункт СДЭК",
+                title="Доставка",
                 details=[
                     "На Серпуховском Валу пункта нет.",
                     "Поиск по адресу покажет два пункта <рядом>.",
@@ -200,7 +255,7 @@ def test_render_client_copy_uses_real_topics_and_escapes_values() -> None:
     )
 
     assert rendered == (
-        "<b>Пункт СДЭК</b>\n"
+        "<b>Доставка</b>\n"
         "На Серпуховском Валу пункта нет.\n"
         "Поиск по адресу покажет два пункта &lt;рядом&gt;.\n"
         "Подходит такая замена?\n\n"
@@ -223,6 +278,54 @@ def test_render_client_copy_has_no_arbitrary_detail_count_limit() -> None:
 
     assert "Факт 0" in rendered
     assert "Факт 19" in rendered
+
+
+def test_render_client_copy_supports_visible_and_expandable_quotes() -> None:
+    rendered = render_client_copy(
+        [
+            ClientTopic(
+                title="Оплата",
+                details=["Оплату пока подключить нельзя."],
+                quotes=[
+                    ClientQuote(
+                        title="Сообщение клиента",
+                        text="Нужна оплата картой <или> переводом.",
+                        mode="visible",
+                    ),
+                    ClientQuote(
+                        title="Подробнее",
+                        text="Для подключения нужны реквизиты.\nИх пока нет.",
+                    ),
+                ],
+            )
+        ]
+    )
+
+    assert rendered == (
+        "<b>Оплата</b>\n"
+        "Оплату пока подключить нельзя.\n"
+        "<blockquote><b>Сообщение клиента</b>\n"
+        "Нужна оплата картой &lt;или&gt; переводом.</blockquote>\n"
+        "<blockquote expandable><b>Подробнее</b>\n"
+        "Для подключения нужны реквизиты.\nИх пока нет.</blockquote>"
+    )
+
+
+@pytest.mark.parametrize(
+    ("quote", "error"),
+    [
+        (ClientQuote(text="  "), "contain text"),
+        (ClientQuote(text="Текст", title="Две\nстроки"), "one line"),
+        (ClientQuote(text="Текст", mode="unknown"), "Unsupported"),
+    ],
+)
+def test_render_client_copy_rejects_invalid_quotes(
+    quote: ClientQuote, error: str
+) -> None:
+    with pytest.raises(ValueError, match=error):
+        render_client_copy(
+            [ClientTopic(title="Оплата", details=["Факт"], quotes=[quote])]
+        )
 
 
 def test_send_file_requires_allowed_root_and_adds_metadata(tmp_path) -> None:

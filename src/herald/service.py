@@ -7,12 +7,14 @@ from herald.config import Config, ConfigError
 from herald.domain import (
     Attachment,
     AttachmentKind,
+    ClientQuote,
     ClientTopic,
     FormattedText,
     Message,
     MessagePreset,
     Messenger,
     Receipt,
+    ReplyTarget,
 )
 
 
@@ -21,6 +23,9 @@ _ESCAPED_TELEGRAM_TAG = re.compile(
     r"(?:\s[^&]*?)?&gt;",
     re.IGNORECASE,
 )
+_MODEL_PROTOCOL_LINE = re.compile(
+    r"(?im)^[ \t]*(?:<|&lt;)/?(?:summary|invoke)(?:>|&gt;)[ \t]*(?:\n|$)"
+)
 
 
 class Herald:
@@ -28,19 +33,34 @@ class Herald:
         self._config = config
         self._adapters = adapters
 
-    def send(self, message: Message, route: str | None = None) -> Receipt:
+    def send(
+        self,
+        message: Message,
+        route: str | None = None,
+        reply_to: ReplyTarget | None = None,
+    ) -> Receipt:
         project, route_name, route_config, adapter = self._resolve(
             message.project, route
         )
 
         rendered = render_message(message, project.label)
-        message_id = adapter.send(route_config.destination, rendered)
+        reply_mode = "none"
+        if reply_to is None:
+            message_id = adapter.send(route_config.destination, rendered)
+        else:
+            message_id, reply_mode = adapter.send_reply(
+                route_config.destination,
+                rendered,
+                reply_to,
+                render_reply_fallback(rendered, reply_to),
+            )
         return Receipt(
             platform=route_config.platform,
             route=route_name,
             message_id=message_id,
             chat_id=route_config.destination.chat_id,
             topic_id=route_config.destination.topic_id,
+            reply_mode=reply_mode,
         )
 
     def send_file(
@@ -50,6 +70,7 @@ class Herald:
         kind: AttachmentKind,
         caption: Message,
         route: str | None = None,
+        reply_to: ReplyTarget | None = None,
     ) -> Receipt:
         project, route_name, route_config, adapter = self._resolve(
             caption.project, route
@@ -71,17 +92,27 @@ class Herald:
                 f"{self._config.files.max_bytes} bytes"
             )
         rendered = render_message(caption, project.label)
-        message_id = adapter.send_file(
-            route_config.destination,
-            Attachment(path=resolved, kind=kind),
-            rendered,
-        )
+        attachment = Attachment(path=resolved, kind=kind)
+        reply_mode = "none"
+        if reply_to is None:
+            message_id = adapter.send_file(
+                route_config.destination, attachment, rendered
+            )
+        else:
+            message_id, reply_mode = adapter.send_file_reply(
+                route_config.destination,
+                attachment,
+                rendered,
+                reply_to,
+                render_reply_fallback(rendered, reply_to),
+            )
         return Receipt(
             platform=route_config.platform,
             route=route_name,
             message_id=message_id,
             chat_id=route_config.destination.chat_id,
             topic_id=route_config.destination.topic_id,
+            reply_mode=reply_mode,
         )
 
     def _resolve(self, project_name: str, route: str | None):
@@ -151,9 +182,45 @@ def render_client_copy(topics: list[ClientTopic]) -> str:
         lines.extend(escape(detail) for detail in details)
         if question:
             lines.append(escape(question))
+        lines.extend(_render_client_quote(quote) for quote in topic.quotes)
         rendered_topics.append("\n".join(lines))
 
     return "\n\n".join(rendered_topics)
+
+
+def _render_client_quote(quote: ClientQuote) -> str:
+    text = quote.text.strip()
+    if not text:
+        raise ValueError("Each client quote must contain text")
+    title = quote.title.strip() if quote.title else None
+    if title and "\n" in title:
+        raise ValueError("Each client quote title must be one line")
+    if quote.mode not in {"visible", "expandable"}:
+        raise ValueError(f"Unsupported client quote mode: {quote.mode!r}")
+
+    body = escape(text)
+    if title:
+        body = f"<b>{escape(title)}</b>\n{body}"
+    attribute = " expandable" if quote.mode == "expandable" else ""
+    return f"<blockquote{attribute}>{body}</blockquote>"
+
+
+def render_reply_fallback(content: FormattedText, target: ReplyTarget) -> FormattedText:
+    reference = target.reference or f"telegram:{target.chat_id}:{target.message_id}"
+    if content.format == "html":
+        detail = escape(reference)
+        if target.quote:
+            quote = target.quote.strip()
+            if len(quote) > 600:
+                quote = quote[:599].rstrip() + "…"
+            detail += "\n" + escape(quote)
+        suffix = f"<blockquote expandable><b>Ответ на сообщение</b>\n{detail}</blockquote>"
+    else:
+        detail = reference
+        if target.quote:
+            detail += "\n> " + target.quote.strip().replace("\n", "\n> ")
+        suffix = f"Ответ на сообщение:\n{detail}"
+    return FormattedText(f"{content.text}\n\n{suffix}", content.format)
 
 
 def render_update(
@@ -219,7 +286,7 @@ def render_update(
 
 
 def render_message(message: Message, project_label: str) -> FormattedText:
-    text = message.text.strip()
+    text = _strip_model_protocol_lines(message.text).strip()
     if not text:
         raise ValueError("Message text cannot be empty")
     for name, value in (
@@ -257,3 +324,8 @@ def render_message(message: Message, project_label: str) -> FormattedText:
         parts.append(reference)
     parts.append(footer)
     return FormattedText(text="\n\n".join(parts), format=message.format)
+
+
+def _strip_model_protocol_lines(text: str) -> str:
+    """Remove standalone Claude protocol tags accidentally copied into user text."""
+    return _MODEL_PROTOCOL_LINE.sub("", text)
