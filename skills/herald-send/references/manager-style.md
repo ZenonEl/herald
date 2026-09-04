@@ -4,13 +4,15 @@
 
 Use this checklist before sending:
 
-- Write copy that can be sent directly to the client. Assume the recipient has not read the project chat or internal reports.
+- Write for a manager who has not read the project chat, does not know the implementation, and may forward the text to the client.
+- Make the message self-contained. The manager must not have to infer what happened, why it matters in practice, or what response is needed now.
+- Prefer copy that can be sent directly to the client. If the message is necessarily internal, make the client-facing wording easy to derive without researching the project.
 - Use plain everyday language. Replace jargon and internal names with the concrete effect for the client.
 - Describe named objects instead of reasoning about them. Under each object, list the concrete steps, properties, result, and limits needed for the recipient's decision.
 - Keep all required details. Brevity removes introductions, comparisons, conclusions, and repetition, not facts.
 - Name the object and lead with its result or present state in one sentence.
 - Prefer one sentence per fact and one fact per list item.
-- Separate blockers, decisions, and client questions.
+- Separate blockers, decisions, and client questions only when the separation helps this message. Do not impose fixed report sections.
 - Make client questions answerable without reconstructing the history.
 - Keep the update inside its requested subject. Exclude unrelated blockers, backlog items, and project health.
 - Ask only for an answer controlled by the recipient that blocks the next action now and is not already available.
@@ -50,7 +52,7 @@ incident is handled separately only if it requires the recipient's action.
 
 Preset intent:
 
-- `brief` (default): one self-contained result sentence plus only active blockers, questions, or the next action. At most five list items total; normally no completed section or background.
+- `brief` (default): free-form, self-contained text with only the context, facts, questions, and actions needed now. It has no fixed heading, paragraph, item, or word count when sent through `send_text`.
 - `standard`: result plus relevant completed work and concise decision context.
 - `detailed`: still starts with the executive update; include extra detail only when requested and decision-relevant.
 

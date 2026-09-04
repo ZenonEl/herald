@@ -232,7 +232,10 @@ def test_render_update_limits_total_brief_items() -> None:
 
 
 def test_message_defaults_to_brief() -> None:
-    assert Message("Текст", "Codex", "GPT", "herald", "Статус").preset == "brief"
+    message = Message("Текст", "Codex", "GPT", "herald", "Статус")
+
+    assert message.preset == "brief"
+    assert message.format == "plain"
 
 
 def test_render_client_copy_uses_real_topics_and_escapes_values() -> None:

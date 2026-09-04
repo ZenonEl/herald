@@ -16,27 +16,31 @@ from herald.watch import WatchScope, WatchStore
 
 
 INSTRUCTIONS = """Herald delivers messages and attachments to configured destinations.
-For text that a manager can copy and send to a client without understanding or rewriting it,
-use send_client_copy. Its headings are the real subjects from the client message or project,
-never fixed report categories. Preserve every in-scope subject the client raised. For each
-subject, state the concrete facts, proposal or next action, and at most one necessary question.
-Keep the visible body self-contained. When an exact source or optional background would make it
-too long, put that material in a visible or expandable quote; never hide a blocker or action there.
-For explicitly internal status, completion, blockers, or decisions use send_update.
-Default to brief and write for a recipient who has not followed the project: name the subject,
-state the result in plain everyday language, and include only questions or actions needed now.
+By default, use send_text with HTML and a free-form structure. Write for a manager who has not
+followed the project and is far from its technical work. The message must stand on its own and
+make the subject, current state, practical consequence, and any required action understandable
+without reading the project history. Prefer wording that the manager can forward directly to the
+client; otherwise make it possible to compose the client message from the text without researching
+the project. Do not force fixed report headings or a fixed number of paragraphs or list items.
+Use headings and lists only when they make this particular message easier to scan.
+Default to brief editorial density: preserve the concrete facts needed to understand or act,
+but remove commentary, repetition, and proof-of-work detail.
 Replace internal names and professional jargon with their practical meaning. Omit work chronology,
 implementation details, tests, tools, and internal reasoning unless they change a client
 decision, risk, cost, or deadline. Treat the requested subject as a hard scope boundary: do
 not add other project problems. Ask a question only when its answer is unavailable, controlled
 by the recipient, and blocks the next action on that subject now. Do not ask about downstream
-steps until they become the next blocker. Address the client directly: never describe the
-client in the third person or send an internal instruction that a manager must rewrite.
-Use standard only when the user asks for context and
-detailed only when explicitly requested. Use send_text only for exact dictated copy or
-an object explanation that does not fit status fields. For an object explanation, start with
+steps until they become the next blocker. When the text is meant to be forwarded, address the
+client directly: never describe the client in the third person or leave an internal instruction
+that the manager must rewrite.
+Use standard only when the user asks for context and detailed only when explicitly requested.
+For an object explanation, start with
 the object name and list its concrete steps, properties, result, and limits. Keep every detail
 needed to understand or choose; remove comparison prose, conclusions, and generalisations.
+Use send_client_copy when the user explicitly wants the message divided into named client
+subjects. Use send_update only when the user explicitly asks for a structured internal report.
+When an exact source or optional background would bloat the main text, use a visible or expandable
+quote; never hide a blocker, required fact, action, or question there.
 Use send_file for an explicitly requested local attachment;
 paths must be allowed by the Herald config.
 For an already-open session placed on Herald duty, use watch_start once, retain
@@ -142,19 +146,21 @@ def send_text(
     subject: str,
     agent: str,
     model: str,
-    format: Literal["plain", "html"],
+    format: Literal["plain", "html"] = "html",
     preset: Literal["brief", "standard", "detailed"] = "brief",
     route: str | None = None,
     reference: str | None = None,
     reply_to: InboxMessageKey | None = None,
 ) -> dict[str, str | int | None]:
-    """Send a formatted message with provenance metadata.
+    """Send a free-form formatted message with provenance metadata.
 
-    Prefer format='html' for human-facing text. Use raw Telegram HTML tags: <b>,
+    HTML is the default. Use raw Telegram HTML tags: <b>,
     <i>, <u>, <s>, <code>, <pre>, <blockquote>, <blockquote expandable>,
     <tg-spoiler>, and <a href='...'>.
-    Never encode tags as &lt;b&gt;. brief is the default: concise, self-contained,
-    client-ready copy without process or internal technical details. For an explanation,
+    Never encode tags as &lt;b&gt;. brief is the default writing density, not a fixed
+    template or word limit. Write a self-contained message for a manager who has not
+    followed the project and may forward it to the client. Explain the practical state
+    and required action without requiring project history or technical knowledge. For an explanation,
     structure the text by named objects and list their concrete steps, properties, result,
     and limits. Do not replace details with a general conclusion or a prose comparison.
     standard adds necessary context; detailed is used only when explicitly requested and
@@ -336,7 +342,7 @@ def notify_completion(
     subject: str,
     agent: str,
     model: str,
-    format: Literal["plain", "html"],
+    format: Literal["plain", "html"] = "html",
     preset: Literal["brief", "standard", "detailed"] = "brief",
     route: str | None = None,
     reference: str | None = None,

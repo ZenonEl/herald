@@ -5,7 +5,14 @@ import pytest
 from mcp import Client
 
 from herald.domain import Receipt
-from herald.server import _inbox_filter, _inbox_source, main, mcp, notify_completion
+from herald.server import (
+    _inbox_filter,
+    _inbox_source,
+    main,
+    mcp,
+    notify_completion,
+    send_text,
+)
 
 
 @pytest.mark.anyio
@@ -41,7 +48,8 @@ async def test_mcp_exposes_write_tools() -> None:
     assert tools["send_update"].annotations.read_only_hint is False
     assert tools["send_client_copy"].annotations.read_only_hint is False
     assert tools["send_file"].annotations.read_only_hint is False
-    assert "format" in tools["send_text"].input_schema["required"]
+    assert "format" not in tools["send_text"].input_schema["required"]
+    assert tools["send_text"].input_schema["properties"]["format"]["default"] == "html"
     assert "preset" not in tools["send_text"].input_schema["required"]
     assert tools["send_text"].input_schema["properties"]["preset"] == {
         "enum": ["brief", "standard", "detailed"],
@@ -49,12 +57,18 @@ async def test_mcp_exposes_write_tools() -> None:
         "title": "Preset",
         "type": "string",
     }
-    assert "format" in tools["notify_completion"].input_schema["required"]
+    assert "format" not in tools["notify_completion"].input_schema["required"]
+    assert (
+        tools["notify_completion"].input_schema["properties"]["format"]["default"]
+        == "html"
+    )
     assert (
         tools["notify_completion"].input_schema["properties"]["preset"]["default"]
         == "brief"
     )
     assert "Never encode tags" in tools["send_text"].description
+    assert "free-form" in tools["send_text"].description
+    assert "manager who has not" in tools["send_text"].description
     assert "<blockquote expandable>" in tools["send_text"].description
     assert "named objects" in tools["send_text"].description
     assert "general conclusion" in tools["send_text"].description
@@ -160,10 +174,34 @@ def test_completion_has_no_decorative_prefix(
         subject="Цены",
         agent="Claude",
         model="Opus",
-        format="html",
     )
 
     assert sent[0].text == "Цены для 126 товаров загружены."
+    assert sent[0].format == "html"
+
+
+def test_send_text_defaults_to_free_form_html(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent = []
+
+    class FakeService:
+        def send(self, message, route=None):
+            sent.append(message)
+            return Receipt("telegram", "work", 1, "-1001", 2)
+
+    monkeypatch.setattr("herald.server.build_service", FakeService)
+
+    send_text(
+        text="<b>Оплата</b>\nСейчас принять оплату нельзя.",
+        project="demo-shop",
+        subject="Оплата",
+        agent="Claude",
+        model="Opus",
+    )
+
+    assert sent[0].format == "html"
+    assert sent[0].text.startswith("<b>Оплата</b>")
 
 
 def test_server_suppresses_httpx_request_urls(monkeypatch: pytest.MonkeyPatch) -> None:

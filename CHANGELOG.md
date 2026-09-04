@@ -3,6 +3,16 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.8.0-beta.2] — 2026-09-04
+
+### Изменено
+
+- `send_text` стал основным режимом по умолчанию: свободная форма с Telegram HTML;
+- дефолтный текст рассчитан на руководителя без контекста проекта и готовится так,
+  чтобы его можно было переслать клиенту или быстро адаптировать без погружения;
+- `brief` для свободного текста задаёт плотность изложения, но не навязывает шаблон
+  или жёсткий лимит слов.
+
 ## [0.8.0-beta.1] — 2026-09-02
 
 ### Добавлено
@@ -118,6 +128,7 @@
 - локальный capture-буфер и экспорт для Mnemo;
 - двойное лицензирование AGPL-3.0-or-later и CC BY-SA 4.0.
 
+[0.8.0-beta.2]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.1...v0.8.0-beta.2
 [0.8.0-beta.1]: https://github.com/ZenonEl/herald/compare/v0.7.0...v0.8.0-beta.1
 [0.7.0]: https://github.com/ZenonEl/herald/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ZenonEl/herald/compare/v0.5.3...v0.6.0
