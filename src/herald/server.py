@@ -8,51 +8,14 @@ from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
 from herald.config import Config, ConfigError, load_config
-from herald.domain import ClientTopic, InboxMessageKey, Message, ReplyTarget
+from herald.domain import ClientTopic, InboxMessageKey, Message, Receipt, ReplyTarget
 from herald.inbox import Inbox
 from herald.service import Herald, render_client_copy, render_update
 from herald.telegram import TelegramAdapter
 from herald.watch import WatchScope, WatchStore
+from herald.prompts import load_prompt
 
-
-INSTRUCTIONS = """Herald delivers messages and attachments to configured destinations.
-By default, use send_text with HTML and a free-form structure. Write for a manager who has not
-followed the project and is far from its technical work. The message must stand on its own and
-make the subject, current state, practical consequence, and any required action understandable
-without reading the project history. Prefer wording that the manager can forward directly to the
-client; otherwise make it possible to compose the client message from the text without researching
-the project. Do not force fixed report headings or a fixed number of paragraphs or list items.
-Use headings and lists only when they make this particular message easier to scan.
-Default to brief editorial density: preserve the concrete facts needed to understand or act,
-but remove commentary, repetition, and proof-of-work detail.
-Replace internal names and professional jargon with their practical meaning. Omit work chronology,
-implementation details, tests, tools, and internal reasoning unless they change a client
-decision, risk, cost, or deadline. Treat the requested subject as a hard scope boundary: do
-not add other project problems. Ask a question only when its answer is unavailable, controlled
-by the recipient, and blocks the next action on that subject now. Do not ask about downstream
-steps until they become the next blocker. When the text is meant to be forwarded, address the
-client directly: never describe the client in the third person or leave an internal instruction
-that the manager must rewrite.
-Use standard only when the user asks for context and detailed only when explicitly requested.
-For an object explanation, start with
-the object name and list its concrete steps, properties, result, and limits. Keep every detail
-needed to understand or choose; remove comparison prose, conclusions, and generalisations.
-Use send_client_copy when the user explicitly wants the message divided into named client
-subjects. Use send_update only when the user explicitly asks for a structured internal report.
-When an exact source or optional background would bloat the main text, use a visible or expandable
-quote; never hide a blocker, required fact, action, or question there.
-Use send_file for an explicitly requested local attachment;
-paths must be allowed by the Herald config.
-For an already-open session placed on Herald duty, use watch_start once, retain
-its duty_id, and loop through watch_wait followed by watch_reply or watch_ack.
-Ordinary Watch reads are scoped to that duty; never replace them with all.
-For capture inbox, pass the current project and keep scope=project by default.
-Use source or all only when the user explicitly requests that wider/different view.
-When responding to a stored inbox message, pass its returned key as reply_to so
-Herald can preserve native or quoted reply context.
-Resolve project from explicit wording or clear project context; otherwise call
-list_destinations and ask instead of guessing. Normally omit route so the SSOT default is
-used. Subject is brief metadata, not a Telegram topic ID. Supply truthful agent/model names."""
+INSTRUCTIONS = load_prompt("server")
 
 mcp = MCPServer("herald", instructions=INSTRUCTIONS, version=version("herald-mcp"))
 WRITE_ANNOTATIONS = ToolAnnotations(
@@ -118,9 +81,19 @@ def _send_message(
     return service.send(message, route=route, reply_to=reply_to)
 
 
-@mcp.tool(annotations=READ_ANNOTATIONS)
+@mcp.tool(
+    annotations=READ_ANNOTATIONS, description=load_prompt("tools/get_writing_rules")
+)
+def get_writing_rules(project: str | None = None) -> dict:
+
+    return {"style": load_prompt("style", project)}
+
+
+@mcp.tool(
+    annotations=READ_ANNOTATIONS, description=load_prompt("tools/list_destinations")
+)
 def list_destinations() -> list[dict[str, str | int | None]]:
-    """List allowed projects and their default Telegram destinations."""
+
     config = load_config()
     result = []
     for project_name, project in config.projects.items():
@@ -139,7 +112,7 @@ def list_destinations() -> list[dict[str, str | int | None]]:
     return result
 
 
-@mcp.tool(annotations=WRITE_ANNOTATIONS)
+@mcp.tool(annotations=WRITE_ANNOTATIONS, description=load_prompt("tools/send_text"))
 def send_text(
     text: str,
     project: str,
@@ -152,20 +125,7 @@ def send_text(
     reference: str | None = None,
     reply_to: InboxMessageKey | None = None,
 ) -> dict[str, str | int | None]:
-    """Send a free-form formatted message with provenance metadata.
 
-    HTML is the default. Use raw Telegram HTML tags: <b>,
-    <i>, <u>, <s>, <code>, <pre>, <blockquote>, <blockquote expandable>,
-    <tg-spoiler>, and <a href='...'>.
-    Never encode tags as &lt;b&gt;. brief is the default writing density, not a fixed
-    template or word limit. Write a self-contained message for a manager who has not
-    followed the project and may forward it to the client. Explain the practical state
-    and required action without requiring project history or technical knowledge. For an explanation,
-    structure the text by named objects and list their concrete steps, properties, result,
-    and limits. Do not replace details with a general conclusion or a prose comparison.
-    standard adds necessary context; detailed is used only when explicitly requested and
-    must still fit Telegram's 4096-character limit.
-    """
     receipt = _send_message(
         build_service(),
         Message(
@@ -184,7 +144,7 @@ def send_text(
     return asdict(receipt)
 
 
-@mcp.tool(annotations=WRITE_ANNOTATIONS)
+@mcp.tool(annotations=WRITE_ANNOTATIONS, description=load_prompt("tools/send_update"))
 def send_update(
     summary: str,
     project: str,
@@ -201,24 +161,7 @@ def send_update(
     reference: str | None = None,
     reply_to: InboxMessageKey | None = None,
 ) -> dict[str, str | int | None]:
-    """Send a concise, client-ready structured update.
 
-    brief is the default. Write for a recipient who has not followed the project: put
-    the concrete subject and current result in one self-contained summary using plain
-    everyday language. Replace jargon and internal names with their practical meaning. Add only
-    blockers, decisions, questions, or the next action needed now; completed is omitted
-    when the summary already says what was done. Keep every field inside the exact subject
-    requested by the user; never append unrelated project health. Include a client question
-    only if the answer is not already available, the recipient controls it, and progress on
-    the subject stops without it now. Build the dependency chain internally and ask only the
-    first unresolved dependency, not questions about later steps. Omit the question section
-    when nothing passes this test. Address the recipient directly. For client copy, put a
-    required choice in client_questions, not the internal decisions_needed section.
-    Do not include chronology, review or
-    test logs, implementation details, tool names, or internal reasoning unless they
-    change a client decision, risk, cost, or deadline. The server enforces preset-specific
-    length and item limits and renders safe Telegram HTML.
-    """
     text = render_update(
         summary=summary,
         completed=completed or [],
@@ -246,7 +189,9 @@ def send_update(
     return asdict(receipt)
 
 
-@mcp.tool(annotations=WRITE_ANNOTATIONS)
+@mcp.tool(
+    annotations=WRITE_ANNOTATIONS, description=load_prompt("tools/send_client_copy")
+)
 def send_client_copy(
     topics: list[ClientTopic],
     project: str,
@@ -257,26 +202,7 @@ def send_client_copy(
     reference: str | None = None,
     reply_to: InboxMessageKey | None = None,
 ) -> dict[str, str | int | None]:
-    """Send copy-ready text addressed directly to the client.
 
-    This is the default tool when a manager should be able to copy the body without
-    understanding the project or rewriting it. Each topic title must be a concrete
-    subject taken from the client message or current project, such as "Оплата" or
-    "Фотографии". Never use fixed report headings such as "Проблемы", "Нужно решить",
-    or "Вопросы". Preserve all subjects raised by the client that are inside the
-    requested scope; brevity removes internal reasoning, not necessary facts.
-
-    Put concrete facts, proposals, and next actions in details. Address the client
-    directly. Add question only when its answer blocks the next action now, and ask
-    only the earliest unresolved dependency. Omit question when no answer is needed.
-    Keep the visible topic self-contained. Use quotes only for an exact source or
-    optional supporting detail: mode="visible" for a short source and
-    mode="expandable" for longer material. A quote must not hide a required fact,
-    action, blocker, or question, duplicate the visible body, or contain internal
-    reasoning. title can identify the source or say "Подробнее".
-    Do not shorten by a fixed word or item count. Keep all facts the client needs;
-    the only hard content limit is Telegram's 4096 visible characters.
-    """
     text = render_client_copy(topics)
     receipt = _send_message(
         build_service(),
@@ -296,7 +222,32 @@ def send_client_copy(
     return asdict(receipt)
 
 
-@mcp.tool(annotations=WRITE_ANNOTATIONS)
+@mcp.tool(annotations=WRITE_ANNOTATIONS, description=load_prompt("tools/send_files"))
+def send_files(
+    paths: list[str],
+    project: str,
+    subject: str,
+    agent: str,
+    model: str,
+    caption: str,
+    mode: Literal["album", "separate"] = "album",
+    kind: Literal["auto", "photo", "document"] = "auto",
+    format: Literal["plain", "html"] = "html",
+    route: str | None = None,
+    reply_to: InboxMessageKey | None = None,
+) -> dict:
+
+    return build_service().send_files(
+        paths=paths,
+        kind=kind,
+        mode=mode,
+        route=route,
+        reply_to=_reply_target(reply_to),
+        caption=Message(caption, agent, model, project, subject, format=format),
+    )
+
+
+@mcp.tool(annotations=WRITE_ANNOTATIONS, description=load_prompt("tools/send_file"))
 def send_file(
     path: str,
     project: str,
@@ -310,12 +261,7 @@ def send_file(
     reference: str | None = None,
     reply_to: InboxMessageKey | None = None,
 ) -> dict[str, str | int | None]:
-    """Send an explicitly requested local file or image with a concise caption.
 
-    The path must resolve under files.allowed_roots. kind=auto sends supported,
-    small images as Telegram photos and everything else as documents. Use raw
-    Telegram HTML in an HTML caption and keep it within the 1024-character limit.
-    """
     receipt = build_service().send_file(
         path=path,
         kind=kind,
@@ -335,7 +281,9 @@ def send_file(
     return asdict(receipt)
 
 
-@mcp.tool(annotations=WRITE_ANNOTATIONS)
+@mcp.tool(
+    annotations=WRITE_ANNOTATIONS, description=load_prompt("tools/notify_completion")
+)
 def notify_completion(
     summary: str,
     project: str,
@@ -348,13 +296,7 @@ def notify_completion(
     reference: str | None = None,
     reply_to: InboxMessageKey | None = None,
 ) -> dict[str, str | int | None]:
-    """Send a concise formatted completion notice when explicitly requested.
 
-    Prefer format='html' and raw Telegram HTML tags, never escaped tag text.
-    Use brief by default and state the concrete completed result without an emoji,
-    greeting, or generic "done" preface. Select standard or detailed only when the
-    user explicitly requests more context.
-    """
     if not summary.strip():
         raise ValueError("Completion summary cannot be empty")
     receipt = _send_message(
@@ -445,9 +387,11 @@ def _inbox_filter(
     raise ValueError("scope must be project, source, or all")
 
 
-@mcp.tool(annotations=READ_ANNOTATIONS)
+@mcp.tool(
+    annotations=READ_ANNOTATIONS, description=load_prompt("tools/list_inbox_sources")
+)
 def list_inbox_sources() -> list[dict]:
-    """List capture sources and their project ownership without reading messages."""
+
     config = load_config()
     return [
         {
@@ -460,26 +404,20 @@ def list_inbox_sources() -> list[dict]:
     ]
 
 
-@mcp.tool(annotations=READ_ANNOTATIONS)
+@mcp.tool(annotations=READ_ANNOTATIONS, description=load_prompt("tools/inbox_status"))
 def inbox_status(
     project: str | None = None,
     chat: str | None = None,
     scope: Literal["project", "source", "all"] = "project",
 ) -> dict:
-    """Summarise what the capture daemon has buffered, without fetching content.
 
-    Check this before inbox_fetch: it reports volume per chat and the age of the
-    oldest unprocessed message, so a range can be chosen deliberately. last_poll
-    is the daemon's heartbeat - if it is hours old the daemon is down and
-    Telegram will start dropping undelivered updates after about a day.
-    """
     config = load_config()
     return _inbox().status(
         _inbox_filter(config, project=project, chat=chat, scope=scope)
     )
 
 
-@mcp.tool(annotations=WRITE_ANNOTATIONS)
+@mcp.tool(annotations=WRITE_ANNOTATIONS, description=load_prompt("tools/inbox_fetch"))
 def inbox_fetch(
     project: str | None = None,
     chat: str | None = None,
@@ -489,43 +427,28 @@ def inbox_fetch(
     include_taken: bool = False,
     scope: Literal["project", "source", "all"] = "project",
 ) -> list[dict]:
-    """Fetch buffered messages for a time range and mark them as taken.
 
-    since and until are ISO-8601 timestamps compared against the message date in
-    UTC. Rows carry the forwarded-message origin, so a forwarded quote keeps its
-    real author instead of the person who forwarded it. Fetching does not remove
-    anything: call inbox_done once the messages are recorded in the archive.
-
-    Set include_taken to see messages handed out earlier but never archived -
-    that is how a batch interrupted halfway is recovered.
-    """
     if limit <= 0 or limit > 1000:
         raise ValueError("limit must be between 1 and 1000")
     config = load_config()
     return _inbox().fetch(
         chat_slug=_inbox_filter(config, project=project, chat=chat, scope=scope),
-        since=since, until=until, limit=limit,
+        since=since,
+        until=until,
+        limit=limit,
         include_taken=include_taken,
     )
 
 
-@mcp.tool(annotations=WRITE_ANNOTATIONS)
+@mcp.tool(annotations=WRITE_ANNOTATIONS, description=load_prompt("tools/inbox_done"))
 def inbox_done(keys: list[dict]) -> dict:
-    """Mark messages as archived, which deletes their downloaded copies.
 
-    Call this only after the messages are in the archive with their hashes: the
-    buffer copy of a file is redundant from that moment and is what actually
-    grows on disk. Each key is {"chat_id": int, "message_id": int}. Rows survive
-    for the configured TTL so a mistake stays recoverable.
-    """
     pairs: list[tuple[int, int]] = []
     for entry in keys:
         try:
             pairs.append((int(entry["chat_id"]), int(entry["message_id"])))
         except (KeyError, TypeError, ValueError) as error:
-            raise ValueError(
-                "Each key needs integer chat_id and message_id"
-            ) from error
+            raise ValueError("Each key needs integer chat_id and message_id") from error
     marked, removed, kept = _inbox().mark_done(pairs)
     result = {"marked": marked, "files_removed": len(removed)}
     if kept:
@@ -535,7 +458,7 @@ def inbox_done(keys: list[dict]) -> dict:
     return result
 
 
-@mcp.tool(annotations=WRITE_ANNOTATIONS)
+@mcp.tool(annotations=WRITE_ANNOTATIONS, description=load_prompt("tools/inbox_export"))
 def inbox_export(
     target: str,
     chat: str | None = None,
@@ -545,31 +468,24 @@ def inbox_export(
     include_taken: bool = False,
     scope: Literal["source", "all"] = "source",
 ) -> dict:
-    """Write a self-contained folder for a range, ready to import into an archive.
 
-    Prefer this over inbox_fetch whenever the messages are going into the
-    archive: it copies the attachments next to inbox.json and rewrites their
-    paths to be relative, which is the only form an archive will accept. Passing
-    raw rows instead files every attachment as missing while the bytes are still
-    on disk. Messages are marked taken; call inbox_done once they are recorded.
-
-    target must be a fresh directory. Set include_taken to rebuild a bundle for
-    messages handed out earlier but never archived - that is the only route by
-    which their attachments can still reach the archive.
-    """
     if limit <= 0 or limit > 1000:
         raise ValueError("limit must be between 1 and 1000")
     # Отказ по нескольким чатам живёт в export_bundle: там он возвращает
     # строкам прежнее состояние, а не оставляет их занятыми.
     return _inbox().export_bundle(
-        Path(target).expanduser(), chat_slug=_inbox_source(chat, scope), since=since, until=until,
-        limit=limit, include_taken=include_taken,
+        Path(target).expanduser(),
+        chat_slug=_inbox_source(chat, scope),
+        since=since,
+        until=until,
+        limit=limit,
+        include_taken=include_taken,
     )
 
 
-@mcp.tool(annotations=READ_ANNOTATIONS)
+@mcp.tool(annotations=READ_ANNOTATIONS, description=load_prompt("tools/watch_list"))
 def watch_list() -> list[dict]:
-    """List configured Watch profiles without registering a duty session."""
+
     config, _ = _watch()
     result = []
     for name, profile in config.watch.profiles.items():
@@ -591,7 +507,7 @@ def watch_list() -> list[dict]:
     return result
 
 
-@mcp.tool(annotations=WRITE_ANNOTATIONS)
+@mcp.tool(annotations=WRITE_ANNOTATIONS, description=load_prompt("tools/watch_start"))
 def watch_start(
     profiles: list[str],
     agent: str,
@@ -600,12 +516,7 @@ def watch_start(
     primary_profile: str | None = None,
     replace: bool = False,
 ) -> dict:
-    """Register this already-open AI session for deterministic Watch delivery.
 
-    The returned duty_id is required by every ordinary Watch read or write.
-    Several profiles require an explicit primary_profile for #all replies.
-    replace is an explicit takeover; it is never inferred.
-    """
     config, watch = _watch()
     duty = watch.start(
         config,
@@ -628,13 +539,9 @@ def watch_start(
     return duty
 
 
-@mcp.tool(annotations=WRITE_ANNOTATIONS)
+@mcp.tool(annotations=WRITE_ANNOTATIONS, description=load_prompt("tools/watch_wait"))
 def watch_wait(duty_id: str, timeout: int = 30) -> dict:
-    """Wait for and claim only the next delivery addressed to this duty_id.
 
-    This never returns another session's delivery, unaddressed messages, or a
-    global queue. A timeout returns {"delivery": null}.
-    """
     config, watch = _watch()
     delivery = watch.wait(duty_id, timeout=timeout)
     if delivery is None:
@@ -653,24 +560,20 @@ def watch_wait(duty_id: str, timeout: int = 30) -> dict:
     return result
 
 
-@mcp.tool(annotations=READ_ANNOTATIONS)
+@mcp.tool(annotations=READ_ANNOTATIONS, description=load_prompt("tools/watch_inspect"))
 def watch_inspect(
     duty_id: str,
     scope: WatchScope,
     limit: int = 100,
 ) -> list[dict]:
-    """Explicitly inspect mine, unaddressed, or the gated all-delivery view.
 
-    This is read-only and never claims a delivery. all is refused unless
-    watch.allow_inspect_all=true. Normal work uses watch_wait instead.
-    """
     config, watch = _watch()
     return watch.inspect(
         duty_id, scope=scope, allow_all=config.watch.allow_inspect_all, limit=limit
     )
 
 
-@mcp.tool(annotations=WRITE_ANNOTATIONS)
+@mcp.tool(annotations=WRITE_ANNOTATIONS, description=load_prompt("tools/watch_reply"))
 def watch_reply(
     duty_id: str,
     delivery_id: str,
@@ -678,13 +581,7 @@ def watch_reply(
     subject: str,
     format: Literal["plain", "html"] = "html",
 ) -> dict:
-    """Reply to a claimed Watch delivery through its configured Herald route.
 
-    The caller supplies no Telegram ids, project, route, agent, or model. Herald
-    derives them from duty_id, delivery_id, and the validated profile. It tries
-    a native Telegram reply first and uses a quoted fallback only after an
-    explicit Telegram rejection. The delivery closes only after a send receipt.
-    """
     config, watch = _watch()
     delivery = watch.delivery(duty_id, delivery_id)
     if delivery["state"] != "claimed":
@@ -697,7 +594,9 @@ def watch_reply(
             chat_id=str(delivery["chat_id"]),
             message_id=int(delivery["message_id"]),
             topic_id=delivery.get("topic_id"),
-            quote=delivery["text"] if profile.reply_context == "native_or_quote" else None,
+            quote=(
+                delivery["text"] if profile.reply_context == "native_or_quote" else None
+            ),
             reference=f"watch:{delivery_id}",
         )
     try:
@@ -733,14 +632,14 @@ def watch_reply(
     return result
 
 
-@mcp.tool(annotations=WRITE_ANNOTATIONS)
+@mcp.tool(annotations=WRITE_ANNOTATIONS, description=load_prompt("tools/watch_ack"))
 def watch_ack(
     duty_id: str,
     delivery_id: str,
     success: bool,
     error: str | None = None,
 ) -> dict:
-    """Close a claimed delivery when no content reply is required, or record failure."""
+
     config, watch = _watch()
     delivery = watch.delivery(duty_id, delivery_id)
     result = watch.ack(duty_id, delivery_id, success=success, error=error)
@@ -750,16 +649,16 @@ def watch_ack(
     return result
 
 
-@mcp.tool(annotations=READ_ANNOTATIONS)
+@mcp.tool(annotations=READ_ANNOTATIONS, description=load_prompt("tools/watch_status"))
 def watch_status(duty_id: str) -> dict:
-    """Show only this duty registration and its delivery counts."""
+
     _, watch = _watch()
     return watch.status(duty_id)
 
 
-@mcp.tool(annotations=WRITE_ANNOTATIONS)
+@mcp.tool(annotations=WRITE_ANNOTATIONS, description=load_prompt("tools/watch_stop"))
 def watch_stop(duty_id: str) -> dict:
-    """Stop this duty and return its unfinished deliveries to their profiles."""
+
     _, watch = _watch()
     return watch.stop(duty_id)
 

@@ -3,6 +3,20 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.8.0-beta.3] — 2026-09-08
+
+### Added
+
+- File albums and sequential batches via `send_files`, with preflight path checks
+  and explicit partial-delivery receipts; ambiguous sends are never auto-retried.
+- Packaged Markdown server/tool prompts, local overrides, and per-project styles.
+- `get_writing_rules` to read current writing preferences without restarting MCP.
+
+### Changed
+
+- English README and plugin descriptions, discoverability keywords, and contribution guide.
+- Send skill loads configured writing rules instead of imposing a duplicate style.
+
 ## [0.8.0-beta.2] — 2026-09-04
 
 ### Изменено

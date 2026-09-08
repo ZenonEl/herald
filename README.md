@@ -1,620 +1,169 @@
-# herald
+# Herald
 
-**Канал наружу.** Ассистент отправляет готовый материал — текст, таблицу, файл,
-скриншот — в твой рабочий мессенджер, откуда ты пересылаешь его дальше.
+Send messages, files, and screenshot albums from Claude Code or Codex to Telegram.
+Keep project conversations in separate topics, preserve the assistant's attribution,
+and capture selected chats into a local inbox.
 
-> Статус: рабочая версия отправки и capture; адресное удалённое дежурство Watch доступно как beta.
+[Русское руководство](README.ru.md) · [Configuration](config.example.toml) · [Changelog](CHANGELOG.md)
 
----
+Herald runs locally as a Python MCP server. You provide a Telegram bot and choose
+its destinations. No hosted Herald account is required.
 
-## Зачем
+## What you can do
 
-Две причины, и вторая важнее.
+- **Send:** free-form Telegram HTML, expandable quotes, files, photo albums, and document packs.
+- **Choose your writing style:** packaged defaults produce short text that a manager
+  can understand and forward without studying the project. Override the instructions
+  locally or per project.
+- **Capture:** buffer messages and attachments from selected chats or topics, including
+  available reply context; export them for an archive such as Mnemo.
+- **Watch (experimental):** address an already-open AI session through bot DMs and
+  receive replies in a configured topic. It does not launch or wake AI sessions.
 
-**Очевидная.** Таблицы, длинные разборы и скриншоты копируются из терминала
-криво. Форматирование рассыпается, картинку вообще не скопируешь. Ты говоришь
-«отправь это в такой-то топик» — и материал приходит целым.
+Example requests:
 
-**Неочевидная: это чинит авторство.**
+> Send the result to the demo project through Herald.
+>
+> Send these screenshots as an album with a short caption.
+>
+> Send these documents as a file pack, preserving the originals.
+>
+> Read the demo project's inbox.
 
-Сейчас, когда ты вручную пересылаешь текст ассистента в рабочий чат, он уходит
-под твоим именем. В выгрузке эти сообщения неотличимы от твоих собственных — ни
-пометки, ни поля. Проверено на живом чате: тринадцать сообщений от одного автора,
-часть из которых написана машиной, и различить их можно только по стилю. Догадка
-по стилю — это ровно то, что запрещает [mnemo](https://github.com/ZenonEl/mnemo):
-не угадывать.
-
-Если пишет бот, а ты **пересылаешь** его сообщение — Telegram сохраняет
-`forwarded_from` с именем бота. Машинный текст становится машинно опознаваемым.
-Автоматически, без меток и дисциплины.
-
-## Устройство
-
-Ядро — MCP-сервер с токеном и транспортом. Небольшой общий скилл поверх него
-учит Claude/Codex выбирать структурированную команду и соблюдать стиль.
-
-```
-ассистент ──MCP──> herald ──адаптер──> Telegram (топик группы)
-                              │
-                              └──> другие платформы, когда появятся
-```
-
-Интерфейс узкий: «отправить <это> в <туда>». Внутри — один адаптер под Telegram.
-
-**Абстракцию под платформы заранее не строим.** Интерфейс появляется, когда
-платформ становится две, а не в ожидании второй. Так вышло с парсерами в mnemo:
-реестр завели на втором формате, и он сразу был правильной формы, потому что
-опирался на два реальных случая, а не на догадку об одном.
-
-## Безопасность — свойством, а не процедурой
-
-**herald пишет только в твой стейджинг.** Начальству пересылаешь ты, руками.
-
-Это сильнее, чем «бот с подтверждением»: он физически не может отправить что-то
-не то в чат с заказчиком, потому что не знает туда дороги. Гарантия структурная,
-а не «мы договорились подтверждать».
-
-Правило: список разрешённых адресатов задаётся в конфиге и не расширяется
-ассистентом.
-
-## Что нужно для запуска
-
-- токен бота (BotFather), хранится вне репозитория;
-- идентификатор группы-стейджинга и карта топиков «имя → id»;
-- бот добавлен в группу с правом писать.
-
-## Первая версия
-
-Сейчас herald — локальный Python MCP-сервер со stdio-транспортом. Основные команды:
-
-- `list_destinations` — посмотреть разрешённые проекты и их маршруты;
-- `send_client_copy` — готовый для пересылки клиенту текст с реальными темами вместо служебных разделов;
-- `send_update` — внутренний управленческий апдейт из отдельных полей;
-- `send_file` — отправка файла или изображения из разрешённого каталога;
-- `send_text` — ручная отправка точного или нестандартного текста;
-- `notify_completion` — уведомление о завершении задачи, когда у задачи явно
-  установлен такой флаг или дана такая инструкция.
-- `list_inbox_sources`, `inbox_status`, `inbox_fetch`, `inbox_export`, `inbox_done` — состояние,
-  чтение, выдача и подтверждение локального буфера захваченных сообщений.
-- `watch_list`, `watch_start`, `watch_wait`, `watch_reply`, `watch_ack`,
-  `watch_status`, `watch_stop` — адресное дежурство уже открытых AI-сессий.
-
-Команды проходят один путь: проект → маршрут → адаптер → Telegram. Сам herald
-не наблюдает за задачами и не решает, когда уведомлять: это делает Codex, Claude
-или их lifecycle-hook.
-
-Каждое сообщение получает компактную подпись:
+Each outgoing message or album caption includes a compact signature:
 
 ```text
-— Codex · GPT · herald · MCP
+— Claude Code · model name · Demo · Review
 ```
 
-### Установка плагином
+## Install
 
-Нужен установленный [`uv`](https://docs.astral.sh/uv/). Плагин приносит один и
-тот же MCP-сервер и один и тот же skill в Claude Code и Codex: отдельные
-`mcp add`, симлинки и копии навыка не нужны.
+Requires [uv](https://docs.astral.sh/uv/) and Claude Code or Codex with plugin support.
+Use one installation method per client to avoid duplicate tools.
 
 Claude Code:
 
-```bash
+```sh
 claude plugin marketplace add ZenonEl/herald
 claude plugin install herald@herald --scope user
 ```
 
 Codex:
 
-```bash
+```sh
 codex plugin marketplace add ZenonEl/herald
 codex plugin add herald@herald
 ```
 
-После установки открой новую сессию. Плагин устанавливает два skill:
-`herald:herald-send` для отправки и `herald:herald-watch` для дежурства.
-В Claude Code их можно вызвать через `/herald:…`, в Codex — через `$herald:…`.
-Обычные просьбы «отправь через Herald» и «включи дежурство Herald» также должны
-активировать нужный skill по описанию.
+These commands install the marketplace's default branch. Features on `beta/watch`
+are available from a beta checkout until merged.
 
-Плагин не содержит токен и рабочие адресаты. Создай пользовательский конфиг:
+For beta development, use a checkout of `beta/watch`, run `uv sync --locked`,
+and register an MCP server that runs `uv run --directory /absolute/path/to/herald herald`.
+The shared skills are in `skills/`. Do not mix this registration with a marketplace
+installation of the same server.
 
-```bash
-mkdir -p ~/.config/herald
-curl -fsSL https://raw.githubusercontent.com/ZenonEl/herald/main/config.example.toml \
-  -o ~/.config/herald/config.toml
-printf '%s\n' 'TOKEN_FROM_BOTFATHER' > ~/.config/herald/telegram.token
-chmod 600 ~/.config/herald/telegram.token
-```
+Create `~/.config/herald/config.toml` from [config.example.toml](config.example.toml)
+if you do not already have a config. Set your bot token file, routes, and projects.
+Keep the token and actual chat IDs outside this repository. Restrict token-file
+permissions to the owning user. Use `HERALD_CONFIG` for another config location.
 
-Открой `~/.config/herald/config.toml` и замени пример своими разрешёнными
-группами, топиками и проектами. Проверить подключение можно просьбой «покажи
-направления Herald» в новой Claude/Codex-сессии.
+Start a new AI session and ask “Show Herald destinations.” Sending does not require
+the Capture daemon.
 
-### Обновление плагина
+## Update
 
 Claude Code:
 
-```bash
+```sh
 claude plugin marketplace update herald
 claude plugin update herald@herald --scope user
 ```
 
 Codex:
 
-```bash
+```sh
 codex plugin marketplace upgrade herald
 codex plugin add herald@herald
 ```
 
-После обновления тоже нужна новая сессия: уже открытая продолжает работать со
-старым набором skill/MCP-инструментов.
+Open a new AI session after a code or tool-description update. Local writing-style
+changes are reread by `get_writing_rules`, without restarting the server.
 
-Если Herald раньше подключался вручную, перед установкой плагина убери старую
-MCP-запись командами `codex mcp remove herald` и `claude mcp remove herald`.
-Проверь старые пути `~/.agents/skills/herald-send` и
-`~/.claude/skills/herald-send`: если это именно символические ссылки на checkout,
-удали ссылки через `unlink`, не затрагивая сам репозиторий. Пользовательский
-`~/.config/herald/` при миграции сохраняется.
+## Files and albums
 
-### Конфиг и версии
+`send_file` sends one attachment. `send_files` accepts a list of absolute paths:
 
-Проект использует `uv`. Версия Python зафиксирована в `.python-version`, версия
-пакета и зависимости — в `pyproject.toml`, точные версии — в `uv.lock`.
+| Mode | Behavior |
+| --- | --- |
+| `album` (default) | 2–10 files, one caption, one Telegram media group |
+| `separate` | 1–100 files, ordered sends, caption on each message |
 
-Версии следуют [Semantic Versioning](https://semver.org/): `pyproject.toml` —
-SSOT версии пакета, менять её нужно через `uv version --bump patch|minor|major`.
-Каждый публичный выпуск получает подписанный тег `vX.Y.Z`, GitHub Release и
-запись в [`CHANGELOG.md`](CHANGELOG.md); версия тега обязана совпадать с
-`project.version`. Тесты дополнительно сверяют версию пакета с обоими
-плагин-манифестами и marketplace Claude Code.
+`kind=auto` sends supported small images as photos and other files as documents.
+An album must contain either photos or documents; use `kind=document` to send
+mixed file types together as originals. Native video/audio album types are not
+implemented yet; these files can be sent as documents.
 
-В `~/.config/herald/config.toml` задаются платформы, разрешённые маршруты,
-проекты и каталоги файлов. Это SSOT: MCP-команда может выбрать только
-существующий маршрут, а файл — только путь внутри `allowed_roots`. Конфиг
-перечитывается перед каждым вызовом, поэтому после добавления проекта или топика
-сервер перезапускать не нужно. Telegram-токен по умолчанию читается из отдельного
-файла:
+All paths are checked against `files.allowed_roots` before sending. The caption
+must fit 1024 visible characters including provenance. Batches stop on a failed
+send and return confirmed receipts, unconfirmed files, and files not attempted.
+There is no automatic retry of uncertain sends. Albums are not automatically split.
 
-```bash
-printf '%s\n' 'TOKEN_FROM_BOTFATHER' > ~/.config/herald/telegram.token
-chmod 600 ~/.config/herald/telegram.token
+Album constraints follow [Telegram's sendMediaGroup contract](https://core.telegram.org/bots/api#sendmediagroup).
+
+## Configure instructions
+
+See [Customization](docs/customization.md) for global and project writing styles,
+server instructions, and tool descriptions. Defaults live in
+[`src/herald/prompts/`](src/herald/prompts/), are included in the Python package,
+and can be overridden without editing Python or the installed plugin.
+
+## Capture and Watch
+
+Enable Capture and list sources in `[[capture.chats]]`, then run from a stable
+checkout:
+
+```sh
+uv run herald-capture --once
+uv run herald-capture
 ```
 
-Сам токен и рабочий конфиг не хранятся в репозитории. Вместо файла можно задать
-`token_env = "HERALD_TELEGRAM_BOT_TOKEN"` в секции платформы.
+Run only one poller per bot token. A user systemd unit is provided in
+[herald-capture.service](herald-capture.service); adjust its checkout path before enabling it.
+Bot permissions and privacy settings must allow receiving the messages you want.
 
-Чтобы узнать `chat_id` и `topic_id`, добавь бота в staging-группу, отправь
-сообщение в нужный топик и посмотри ответ `getUpdates`: `message.chat.id` — это
-`chat_id`, а `message.message_thread_id` — `topic_id`.
+Capture is a temporary buffer, not a complete archive or a history reader.
+`inbox_status` and `inbox_fetch` require a project by default. Explicit source/all
+reads remain available: this is a filter for trusted local sessions, not an
+access-control boundary between users. Export is source-scoped.
 
-Проект задаёт маршрут по умолчанию:
+For optional Watch, configure an allowed private source and profiles, start the same
+Capture daemon, and ask an open AI session to activate a profile. Send
+`#example Your request` in the bot DM. Use `/help` there for configured profiles
+and commands. [Watch design and limits](docs/watch-concept.md).
 
-```toml
-[routes.demo-shop]
-platform = "telegram"
-chat_id = "-1001234567890"
-topic_id = 2
+## Architecture and boundaries
 
-[projects.demo-shop]
-label = "Demo Shop"
-description = "Демонстрационный интернет-магазин и относящиеся к нему материалы."
-route = "demo-shop"
+MCP tools call an application service; domain objects and a messenger protocol
+keep Telegram HTTP details in the adapter. Local configuration defines projects,
+routes, and allowed file roots.
 
-[files]
-allowed_roots = ["~/Herald/outbox"]
-max_bytes = 50000000
-```
+Herald can send to every destination you configure. For review-before-forwarding,
+configure a private hub rather than a client chat. The skill requires an explicit
+send request; transport code cannot verify the intent behind an AI tool call.
 
-Создай каталог `~/Herald/outbox` и клади туда только то, что разрешено
-отправлять ассистенту. Не открывай ему целиком домашний каталог или все рабочие
-репозитории: среди них часто лежат `.env`, ключи и клиентские данные.
+Herald does not host an LLM, guarantee writing quality, or provide a full remote
+terminal. Your local config, inbox, token, and custom prompts belong outside Git.
 
-Обычно ассистент передаёт только `project = "demo-shop"`; поле `route` нужно лишь
-для явного переопределения. `subject` — краткая тема для подписи сообщения, а не
-Telegram `topic_id`.
+## Contributing
 
-### Форматирование
+See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports with a minimal, sanitized
+reproduction are welcome. Report whether you used a marketplace install or checkout,
+the Herald version, the tool called, and the expected result. Remove tokens,
+private paths, actual chat IDs, and client material.
 
-По умолчанию используется `format = "html"`; при необходимости его можно явно
-заменить на `plain`. Herald добавит `parse_mode = "HTML"`.
-Поддерживаются теги
-Telegram вроде `<b>`, `<i>`, `<u>`, `<s>`, `<tg-spoiler>`, `<a href="…">`,
-`<code>`, `<pre>`, `<blockquote>` и `<blockquote expandable>`. Служебная подпись и ссылка экранируются самим
-herald, HTML основного текста передаётся как есть.
+## License
 
-Если при `format = "html"` передать экранированные теги вроде `&lt;b&gt;`,
-herald отклонит вызов и подскажет передать сырой `<b>`. Это не даёт ассистенту
-молча прислать видимые HTML-теги вместо форматирования.
-
-### Пресеты сообщения
-
-`send_text` — основной режим: свободная форма с Telegram HTML без обязательных
-заголовков или шаблона. По умолчанию текст рассчитан на руководителя, который не
-следит за проектом: сообщение само объясняет тему, текущее состояние, практический
-смысл и нужное действие. Формулировка по возможности готова для пересылки клиенту.
-
-Для `send_update` сервер сам собирает HTML из полей `summary`, `completed`,
-`blockers`, `decisions_needed`, `client_questions` и `next_steps`, экранирует
-значения и проверяет длину каждого пункта. Это основной путь для статусов и
-отчётов: модель не присылает готовую портянку.
-
-Поле `preset` задаёт плотность материала:
-
-- `brief` — режим по умолчанию: самодостаточный текст для клиента простым языком, один результат и только необходимые вопросы или действия, без внутренней кухни и жаргона;
-- `standard` — компактное структурированное сообщение;
-- `detailed` — полный отчёт с разделами и деталями.
-
-Для `send_update`, `send_text` и `notify_completion` по умолчанию используется `brief`.
-Для `send_text` это плотность изложения, а не жёсткий шаблон или лимит слов. Ограничения
-в 180 символов для итога, 140 символов для пункта и пять пунктов действуют только при
-структурированной сборке через `send_update`. Перед отправкой проверяется
-лимит Telegram: не более 4096 отображаемых символов с учётом HTML-разметки.
-Автоматического разбиения длинного HTML в этой версии ещё нет.
-
-Если нужно раскрыть вариант, процесс или функцию, skill использует `send_text`:
-название объекта, затем полный перечень необходимых шагов, свойств, результата и
-ограничений. Краткость в этом режиме убирает рассуждения и обобщения, но не факты.
-
-Тема запроса служит жёсткой границей сообщения. Вопрос клиенту добавляется, только
-если ответ ещё неизвестен, находится у клиента и без него нельзя выполнить ближайшее
-действие по этой теме. Побочные проблемы проекта и вопросы о более поздних шагах
-не добавляются.
-
-Перед формулировкой вопроса skill строит цепочку зависимостей и выбирает первое
-неизвестное решение, которым управляет клиент. Готовый текст обращается напрямую
-к клиенту; внутренние формулировки вроде «заводить ли заказчице доступ» запрещены.
-Пары примеров находятся в `skills/herald-send/references/decision-examples.md`.
-
-`send_client_copy` нужен, когда пользователь явно просит разделить сообщение на
-именованные клиентские темы. Заголовки задаются содержанием обращения или проекта, например
-`Доставка`, `Фотографии` или `Оплата`. Сервер отклоняет фиксированные заголовки
-внутреннего отчёта вроде `Проблемы`, `Нужно решить` и `Вопросы`. Жёсткого лимита
-слов, тем или фактов нет: сохраняются все нужные клиенту сведения, пока сообщение
-помещается в лимит Telegram на 4096 видимых символов.
-
-К теме можно добавить `quotes`: `mode = "visible"` оставляет короткую цитату
-раскрытой, а `mode = "expandable"` сворачивает длинный источник или необязательные
-подробности. Основной текст должен оставаться понятным без раскрытия цитаты; вопросы,
-блокеры и нужные действия в неё не прячутся.
-
-`send_file` в режиме `auto` отправляет небольшие JPEG/PNG/WebP как фотографию,
-остальное — как документ. Подпись ограничена 1024 отображаемыми символами;
-документ — настроенным лимитом до 50 МБ.
-
-### Ручное подключение из checkout
-
-Этот способ нужен для разработки или установки без marketplace. Не смешивай его
-с установкой плагина: иначе клиент увидит две копии skill или два MCP-сервера.
-
-```bash
-git clone https://github.com/ZenonEl/herald.git
-cd herald
-uv sync --locked
-mkdir -p ~/.config/herald
-cp config.example.toml ~/.config/herald/config.toml
-```
-
-Используй абсолютный путь к checkout, чтобы сервер был доступен из любого
-проекта и нового чата.
-
-Codex (пользовательский `~/.codex/config.toml`):
-
-```bash
-codex mcp add herald -- uv run --directory /absolute/path/to/herald herald
-```
-
-Claude Code (важен scope `user`, а не default `local`):
-
-```bash
-claude mcp add --scope user herald -- \
-  uv run --directory /absolute/path/to/herald herald
-```
-
-После добавления открой новые сессии. Проверка:
-
-```bash
-codex mcp get herald
-claude mcp get herald
-```
-
-Общий skill лежит в `skills/herald-send`. При ручной установке обе системы могут
-использовать один источник через символические ссылки:
-
-```bash
-mkdir -p ~/.claude/skills ~/.agents/skills
-ln -s /absolute/path/to/herald/skills/herald-send ~/.claude/skills/herald-send
-ln -s /absolute/path/to/herald/skills/herald-send ~/.agents/skills/herald-send
-```
-
-В таком режиме без plugin namespace он вызывается как `/herald-send` в Claude
-Code и `$herald-send` в Codex.
-Инструкция предлагает применить доступный `humanizer`, но не требует и не
-копирует его: если такого скилла нет, отправка продолжается по встроенному
-чек-листу.
-
-### Разработка
-
-```bash
-uv run pytest
-```
-
-Тесты не обращаются к Telegram: HTTP-ответы подменяются локально, а MCP-контракт
-проверяется in-memory клиентом официального SDK.
-
-## Место в связке
-
-| Проект | Роль |
-|---|---|
-| [mnemo](https://github.com/ZenonEl/mnemo) | архив материала с провенансом + факты, решения, вопросы |
-| [ephemeris](../ephemeris) | дейлики: состояние и синк в issues |
-| **herald** | **канал наружу к людям** |
-
-Отправка не хранит содержание отдельно. Capture и Watch используют локальную
-SQLite-очередь с ограниченным сроком жизни; это транспортный буфер, а не архив.
-Долговременный контекст по-прежнему относится к mnemo.
-
-## Захват рабочих чатов
-
-Вторая половина того же канала: herald не только отправляет наружу, но и
-вычитывает рабочие группы в локальный буфер, откуда ассистент забирает их сам —
-вместо ручного копирования сообщений, файлов и скриншотов.
-
-Смысл не в удобстве. Копипаста из Telegram подписывает **пересланное** сообщение
-тем, кто его переслал; Bot API отдаёт настоящего автора, если тот не скрыл себя.
-На живом рабочем чате это разница в 16 сообщениях из 21.
-
-Захват сейчас рассчитан на Unix (`flock`); готовый сервис — на Linux с systemd.
-Обычная отправка через MCP от systemd не зависит.
-
-### Что нужно от Telegram
-
-- бот добавлен в рабочую группу;
-- **privacy-режим выключен** у BotFather — иначе бот видит только команды и
-  ответы себе. Настройка применяется лишь после переприглашения бота в группу;
-- право «отправлять сообщения» можно снять: читать это не мешает, а случайно
-  написать в рабочий чат станет нечем.
-
-### Пределы, которые не обходятся
-
-- **истории нет.** Бот не прочитает ни одного сообщения, отправленного до того,
-  как его добавили. Всё, что было раньше, вносится выгрузкой чата;
-- **очередь живёт около суток.** Простой меньше суток демон догоняет сам, дольше
-  — сообщения потеряны. Отсюда `Restart=always` и heartbeat в `inbox_status`;
-- **скачивание до 20 МБ.** Больший файл записью не теряется: остаётся строка с
-  пометкой, что скачать не удалось, и оригинал в Telegram.
-
-### Настройка захвата
-
-Marketplace-плагин автоматически подключает MCP и skill, но не запускает
-фоновый процесс. Для постоянного capture нужен стабильный checkout репозитория:
-путь внутри plugin-cache меняется при обновлении. Клонируй Herald вручную,
-настрой тот же пользовательский конфиг и запускай демон из checkout.
-
-В `~/.config/herald/config.toml` (или в файле, на который указывает
-`HERALD_CONFIG` — им же удобно пробовать, не трогая боевой):
-
-```toml
-[capture]
-enabled = true            # в поставляемом примере false, иначе демон откажется стартовать
-ttl_days = 7
-capture_self = true       # твои собственные сообщения тоже нужны: половина
-                          # договорённостей звучит в твоих же ответах
-# self_id = 123456789     # обязателен, только если capture_self = false
-
-[[capture.chats]]
-id = -1001234567890       # ЧИСЛО, без кавычек — в отличие от chat_id в [routes]
-topic_id = 42             # необязательно: захватывать только этот топик форума
-slug = "demo-shop"        # войдёт в ссылки ctx: и в имя каталога буфера
-project = "demo-shop"     # inbox этого проекта не увидит чужие источники
-```
-
-Можно перечислить несколько топиков одной группы отдельными блоками с разными
-`topic_id` и `slug`. Если задан `topic_id`, сообщения из общего чата и других
-топиков не сохраняются. Запись без `topic_id` захватывает весь чат; смешивать её
-с отдельными топиками того же чата конфиг не разрешит.
-
-**Секции `[routes]` и `[projects]` для захвата не нужны** — конфиг может быть
-только читающим. А вот `[platforms.telegram]` с токеном **нужен всегда**: читать
-без токена нельзя, даже если отправлять нечего.
-
-`chat_id` берётся из `getUpdates`, но демон опрашивает тот же токен, а двух
-опросов Telegram не допускает. Поэтому узнавай id **до** запуска демона или
-остановив его.
-
-### Запуск
-
-```bash
-uv run herald-capture --once   # один опрос и выход: проверить настройку
-uv run herald-capture          # рабочий режим
-```
-
-Демон один: два опроса на один токен Telegram отвергает, поэтому второй
-экземпляр честно откажется стартовать. Лок берётся по токену, а не по базе, и
-лежит в `~/.local/share/herald/locks`: это общий путь для systemd с `PrivateTmp`
-и ручного `--once`.
-Отправка при этом не мешает — конфликтует только опрос с опросом.
-
-Готовый юнит — `herald-capture.service` в корне репозитория:
-
-```bash
-cp herald-capture.service ~/.config/systemd/user/
-$EDITOR ~/.config/systemd/user/herald-capture.service
-systemctl --user daemon-reload
-systemctl --user enable --now herald-capture
-```
-
-В юните поправь под себя:
-
-- `ExecStart` — путь к клону (в файле стоит `%h/GitHub/herald`);
-- `ReadWritePaths` — если менял `database` или `files_dir`, иначе
-  `ProtectSystem=strict` не даст туда писать;
-- `Environment=HERALD_CONFIG=…` — если конфиг лежит не по умолчанию.
-
-**Пути в конфиге меняются только с рестартом.** Демон открывает базу и каталог
-файлов один раз; подхватывать их на лету значило бы, что он пишет в старую базу,
-пока ассистент читает новую и видит пустой буфер. Про смену пути в логе будет
-предупреждение. Всё остальное — список чатов, `enabled`, TTL — действует сразу.
-
-### Что видит ассистент
-
-| Команда | Что делает |
-|---|---|
-| `inbox_status` | объём буфера по чатам и heartbeat демона, без содержимого |
-| `inbox_export` | **основной путь**: самодостаточный каталог для импорта в архив |
-| — | `target` — обязательно **новый** каталог; повтор в тот же отвергается |
-| — | `include_taken` — пересобрать пачку, отданную раньше и не дошедшую до архива |
-| `inbox_fetch` | только строки, без копирования файлов — почитать текст |
-| `inbox_done` | зафиксировано в архиве → удаляет скачанные копии, строка живёт TTL |
-
-Инструменты видны всегда, но при `capture.enabled = false` отвечают отказом.
-
-Ответы сохраняются вместе с `reply_to` и структурированным `reply_context`:
-автором, датой, полным текстом/caption родителя, метаданными вложения и точной
-выделенной цитатой (`quote`). Если родитель находится в разрешённом топике,
-Herald добавляет его в буфер отдельной записью и скачивает доступное вложение.
-Так ответ на старое сообщение может донести его в архив даже если бот вступил
-в чат позже. Произвольно читать историю бот не может: Telegram передаёт только
-одного непосредственного родителя нового ответа.
-
-Контекст из топика, которого нет в `[[capture.chats]]`, целиком не сохраняется:
-остаётся только явно показанная в разрешённом сообщении цитата. Для внешнего
-ответа Telegram не отдаёт полный текст; Herald фиксирует доступные origin, id,
-метаданные вложения и цитату, но не пытается выдать их за исходное сообщение.
-
-### Как захваченное попадает в архив
-
-`inbox_export` пишет каталог такого вида:
-
-```
-bundle/
-├── inbox.json          строки сообщений; local_path — ОТНОСИТЕЛЬНЫЙ путь
-└── files/<slug>/…      сами вложения
-```
-
-Относительность здесь не деталь: архив обязан отвергать источник, который
-адресует что-либо вне своего каталога, — правило существует потому, что выгрузки
-приходят от третьих лиц. Отдавать сырые строки с абсолютными путями значит
-получить все вложения в статусе «пропало» при живых файлах на диске.
-
-Дальше — обычный импорт в [mnemo](https://github.com/ZenonEl/mnemo):
-
-```bash
-python3 …/mnemo/scripts/mnemo_import.py --export _chat-export --source bundle
-python3 …/mnemo/scripts/mnemo_import.py --export _chat-export --source bundle --apply
-```
-
-Строка сообщения. **Обязательные поля** — без любого из них архив откажется
-принять каталог, и это намеренно: без `author_name` импорт прошёл бы, подписав
-все сообщения как «неизвестно», а тихая порча хуже честного отказа.
-
-| Поле | Обяз. | Значение |
-|---|---|---|
-| `chat_id` | да | числовой id чата |
-| `message_id` | да | номер сообщения; уникален **внутри чата** |
-| `chat_slug` | да | тема; из него берётся slug экспорта |
-| `date` | да | ISO-8601 с зоной |
-| `author_name` | да | кто отправил (не обязательно автор — см. `origin_type`) |
-| `origin_type` | нет → написал отправитель; `user` → переслано, автор известен; `hidden_user` / `chat` / `channel` → автор не установлен |
-| `origin_name` | показанное имя; **автором не считается**, когда `origin_type` не `user` |
-| `origin_id`, `origin_date` | нет | id и время оригинала пересылки |
-| `media_kind` | нет | `voice` · `photo` · `document` · `video` … — задаёт зону RAW |
-| `file_id` | нет | есть вложение; вместе с пустым `local_path` даёт запись «не добыт» |
-| `file_name`, `mime`, `size` | нет | как прислал Telegram |
-| `local_path` | нет | путь **внутри каталога выгрузки** либо `null` |
-| `media_note` | нет | почему файла нет — попадает в архив, а не теряется |
-| `author_username`, `reply_to`, `topic_id` | нет | как есть |
-| `reply_context` | нет | снимок родителя/внешнего ответа и точная цитата |
-
-Один каталог — один чат: номера сообщений в разных чатах повторяются, и
-смешение молча теряло бы часть. `inbox_export` отказывается собирать пачку из
-нескольких чатов.
-
-Буфер — **не архив**. Он неполон (нет истории, нет удалений) и живёт неделю;
-разбираться, что из этого нужно, — работа архива, а не буфера.
-
-## Watch beta: связь с открытыми AI-сессиями
-
-Watch не запускает и не будит терминалы. Он даёт уже открытой сессии адресную
-очередь: можно отойти от компьютера, написать боту в личку и получить ответ в
-настроенном проектном топике.
-
-Вход детерминирован:
-
-- источник — только разрешённый private chat и только разрешённый Telegram user;
-- профиль принимает тег только из своего источника; одна duty не смешивает
-  профили разных владельцев;
-- первое слово `#тег` выбирает профиль; `#all` создаёт отдельную доставку каждой
-  активной сессии;
-- обычный `watch_wait` видит только доставки своего `duty_id`;
-- неадресованные сообщения не попадают ни одной сессии; посмотреть их можно
-  только явным `watch_inspect(scope="unaddressed")`;
-- просмотр общей очереди закрыт, пока администратор явно не включит
-  `allow_inspect_all`.
-
-Минимальный конфиг находится в `config.example.toml`. Capture и Watch используют
-один `herald-capture`: Telegram разрешает только один `getUpdates`-поллинг на
-токен, поэтому отдельный Watch-демон намеренно не создаётся.
-
-В открытой Claude/Codex-сессии:
-
-1. попроси «включи дежурство Herald для профиля example»;
-2. сессия вызовет `watch_start`, сохранит `duty_id` и будет ждать через
-   `watch_wait`;
-3. напиши боту в личку `#example Проверь текущий статус`;
-4. ответ уйдёт по маршруту профиля. Herald сначала попробует Telegram reply на
-   исходное сообщение; если Telegram явно отвергнет cross-chat reply, добавит
-   сворачиваемую цитату исходного текста;
-5. попроси «выключи дежурство», чтобы вызвать `watch_stop`.
-
-`/help` в разрешённой личке показывает профили, адресные теги, запуск одной или
-нескольких сессий, `#all`, обычную отправку и чтение project inbox. `/start`
-отвечает только коротким приветствием и ссылкой на `/help`. Справку формирует
-сам listener: активная AI-сессия для неё не нужна. Посторонним пользователям бот
-не раскрывает конфигурацию. Текст собирается с безопасным запасом к лимиту
-Telegram 4096 символов и не обрывает HTML или строку профиля.
-
-Реакции по умолчанию: 👀 — доставка взята, 👍 — закрыта, ❌ — обработка
-завершилась ошибкой. Их можно изменить или отключить в профиле. В beta Watch
-принимает текст и caption; входящие файлы остаются задачей следующей версии.
-
-Capture-inbox изолирован отдельно: `inbox_status` и `inbox_fetch` по умолчанию
-требуют `project` и читают только `[[capture.chats]]` с тем же `project`.
-`scope="source"` и `scope="all"` являются явным расширением, а не fallback.
-
-
-## Ссылки на записи
-
-Единый формат цитирования для всей связки:
-
-```
-ctx:<slug>#<id>          ctx:demo-shop#i004   ctx:meetings#q012
-```
-
-`ctx` — от «context», а не от имени инструмента. Программа, которая ведёт архив,
-может смениться; ссылка не должна от этого умирать. `slug` — тема (экспорт),
-`id` — запись внутри неё: `i` материал, `q` вопрос, `t` требование,
-`r` изъятие.
-
-Нормативное описание —
-[`mnemo/SPEC/CITATION.md`](https://github.com/ZenonEl/mnemo/blob/main/SPEC/CITATION.md).
-
-Общего у трёх проектов — три опубликованных версионированных формата: ссылка,
-манифест и
-[контракт чтения](https://github.com/ZenonEl/mnemo/blob/main/SPEC/QUERY.md).
-Ничего исполняемого: ни
-библиотеки, ни базы, ни общего процесса. Тот, кому нужны данные архива,
-вызывает команду mnemo и получает JSON — так же, как herald вызывает Telegram.
-
-## Лицензии
-
-Репозиторий лицензирован по частям:
-
-| Путь | Лицензия |
-|---|---|
-| `README.md` и `skills/herald-send/references/` — документация и текстовые материалы | [CC BY-SA 4.0](LICENSE-docs) |
-| всё остальное — сервер, capture, MCP, навык, конфиг и тесты | [AGPL-3.0-or-later](LICENSE) |
-
-Для производных редакций документации нужны указание авторства, отметка об
-изменениях и та же лицензия. Для изменённой сетевой версии Herald пользователям
-должен быть доступен соответствующий исходный код. Сообщения, файлы и другие
-пользовательские материалы, проходящие через Herald, этими лицензиями не
-перелицензируются.
+Code and executable skill instructions use [AGPL-3.0-or-later](LICENSE).
+The README documentation and editorial reference material use
+[CC BY-SA 4.0](LICENSE-docs). User messages and attachments keep their own licenses.

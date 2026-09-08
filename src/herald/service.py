@@ -2,6 +2,7 @@ from collections.abc import Mapping
 from html import escape
 from pathlib import Path
 import re
+from typing import Literal
 
 from herald.config import Config, ConfigError
 from herald.domain import (
@@ -16,7 +17,6 @@ from herald.domain import (
     Receipt,
     ReplyTarget,
 )
-
 
 _ESCAPED_TELEGRAM_TAG = re.compile(
     r"&lt;/?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|blockquote|tg-spoiler)"
@@ -75,22 +75,7 @@ class Herald:
         project, route_name, route_config, adapter = self._resolve(
             caption.project, route
         )
-        resolved = Path(path).expanduser().resolve()
-        if not resolved.is_file():
-            raise ValueError(f"Attachment is not a readable file: {resolved}")
-        if not any(
-            resolved.is_relative_to(root) for root in self._config.files.allowed_roots
-        ):
-            raise ValueError(
-                "Attachment is outside files.allowed_roots: "
-                f"{resolved}. Add its directory to the Herald config explicitly."
-            )
-        size = resolved.stat().st_size
-        if size > self._config.files.max_bytes:
-            raise ValueError(
-                f"Attachment is {size} bytes; configured limit is "
-                f"{self._config.files.max_bytes} bytes"
-            )
+        resolved = self._attachment_path(path)
         rendered = render_message(caption, project.label)
         attachment = Attachment(path=resolved, kind=kind)
         reply_mode = "none"
@@ -107,13 +92,104 @@ class Herald:
                 render_reply_fallback(rendered, reply_to),
             )
         return Receipt(
-            platform=route_config.platform,
-            route=route_name,
-            message_id=message_id,
-            chat_id=route_config.destination.chat_id,
-            topic_id=route_config.destination.topic_id,
-            reply_mode=reply_mode,
+            route_config.platform,
+            route_name,
+            message_id,
+            route_config.destination.chat_id,
+            route_config.destination.topic_id,
+            reply_mode,
         )
+
+    def send_files(
+        self,
+        *,
+        paths: list[str],
+        kind: AttachmentKind,
+        caption: Message,
+        mode: Literal["album", "separate"] = "album",
+        route: str | None = None,
+        reply_to: ReplyTarget | None = None,
+    ) -> dict:
+        if not paths or len(paths) > 100:
+            raise ValueError("Provide 1–100 files")
+        if mode not in {"album", "separate"}:
+            raise ValueError("mode must be album or separate")
+        if mode == "album" and not 2 <= len(paths) <= 10:
+            raise ValueError(
+                "An album requires 2–10 files; use separate for other counts"
+            )
+        project, route_name, route_config, adapter = self._resolve(
+            caption.project, route
+        )
+        attachments = [Attachment(self._attachment_path(path), kind) for path in paths]
+        rendered = render_message(caption, project.label)
+        adapter.validate_files(attachments, rendered, album=mode == "album")
+        if reply_to is not None and mode == "separate":
+            adapter.validate_files(
+                attachments, render_reply_fallback(rendered, reply_to)
+            )
+        result = {
+            "route": route_name,
+            "chat_id": route_config.destination.chat_id,
+            "topic_id": route_config.destination.topic_id,
+            "sent": [],
+            "unconfirmed": [],
+            "not_attempted": [],
+        }
+        groups = [attachments] if mode == "album" else [[item] for item in attachments]
+        for group in groups:
+            try:
+                if mode == "album":
+                    ids = adapter.send_album(
+                        route_config.destination, group, rendered, reply_to
+                    )
+                elif reply_to is None:
+                    ids = [
+                        adapter.send_file(route_config.destination, group[0], rendered)
+                    ]
+                else:
+                    message_id, _ = adapter.send_file_reply(
+                        route_config.destination,
+                        group[0],
+                        rendered,
+                        reply_to,
+                        render_reply_fallback(rendered, reply_to),
+                    )
+                    ids = [message_id]
+                result["sent"].extend(
+                    {"path": str(item.path), "message_id": mid}
+                    for item, mid in zip(group, ids)
+                )
+            except Exception as error:
+                result["unconfirmed"] = [str(item.path) for item in group]
+                count = len(result["sent"]) + len(group)
+                result["not_attempted"] = [
+                    str(item.path) for item in attachments[count:]
+                ]
+                result["error"] = type(error).__name__
+                result["complete"] = False
+                return result
+        result["complete"] = True
+        return result
+
+    def _attachment_path(self, path: str | Path) -> Path:
+        resolved = Path(path).expanduser().resolve()
+        if not resolved.is_file():
+            raise ValueError(f"Attachment is not a readable file: {resolved}")
+        if not any(
+            resolved.is_relative_to(root) for root in self._config.files.allowed_roots
+        ):
+            raise ValueError(
+                "Attachment is outside files.allowed_roots: "
+                f"{resolved}. Add its directory to the Herald config explicitly."
+            )
+        size = resolved.stat().st_size
+        if size > self._config.files.max_bytes:
+            raise ValueError(
+                f"Attachment is {size} bytes; configured limit is "
+                f"{self._config.files.max_bytes} bytes"
+            )
+        return resolved
 
     def _resolve(self, project_name: str, route: str | None):
         project = self._config.projects.get(project_name)
@@ -214,7 +290,9 @@ def render_reply_fallback(content: FormattedText, target: ReplyTarget) -> Format
             if len(quote) > 600:
                 quote = quote[:599].rstrip() + "…"
             detail += "\n" + escape(quote)
-        suffix = f"<blockquote expandable><b>Ответ на сообщение</b>\n{detail}</blockquote>"
+        suffix = (
+            f"<blockquote expandable><b>Ответ на сообщение</b>\n{detail}</blockquote>"
+        )
     else:
         detail = reference
         if target.quote:
@@ -275,7 +353,9 @@ def render_update(
             f"{total_items} > {total_limit}"
         )
 
-    parts = [escape(summary)] if preset == "brief" else [f"<b>Итог</b>\n{escape(summary)}"]
+    parts = (
+        [escape(summary)] if preset == "brief" else [f"<b>Итог</b>\n{escape(summary)}"]
+    )
     for heading, items in normalized_sections:
         if items:
             rendered = "\n".join(

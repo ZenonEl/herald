@@ -2,7 +2,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Protocol
 
-
 TextFormat = Literal["plain", "html"]
 MessagePreset = Literal["brief", "standard", "detailed"]
 AttachmentKind = Literal["auto", "photo", "document"]
@@ -81,6 +80,22 @@ class Receipt:
 
 
 class Messenger(Protocol):
+    def send_album(
+        self,
+        destination: Destination,
+        attachments: list[Attachment],
+        caption: FormattedText,
+        target: ReplyTarget | None = None,
+    ) -> list[int]: ...
+
+    def validate_files(
+        self,
+        attachments: list[Attachment],
+        caption: FormattedText,
+        *,
+        album: bool = False,
+    ) -> None: ...
+
     def send(self, destination: Destination, content: FormattedText) -> int: ...
 
     def send_file(

@@ -22,6 +22,8 @@ async def test_mcp_exposes_write_tools() -> None:
 
     tools = {tool.name: tool for tool in result.tools}
     assert set(tools) == {
+        "send_files",
+        "get_writing_rules",
         "list_destinations",
         "send_text",
         "send_update",
@@ -68,17 +70,12 @@ async def test_mcp_exposes_write_tools() -> None:
     )
     assert "Never encode tags" in tools["send_text"].description
     assert "free-form" in tools["send_text"].description
-    assert "manager who has not" in tools["send_text"].description
+    assert "get_writing_rules" in tools["send_text"].description
     assert "<blockquote expandable>" in tools["send_text"].description
-    assert "named objects" in tools["send_text"].description
-    assert "general conclusion" in tools["send_text"].description
-    assert tools["send_update"].input_schema["properties"]["preset"]["default"] == "brief"
-    assert "client-ready" in tools["send_update"].description
-    assert "everyday language" in tools["send_update"].description
-    assert "exact subject" in tools["send_update"].description
-    assert "first unresolved dependency" in tools["send_update"].description
-    assert "dependency chain" in tools["send_update"].description
-    assert "Address the recipient directly" in tools["send_update"].description
+    assert (
+        tools["send_update"].input_schema["properties"]["preset"]["default"] == "brief"
+    )
+    assert "get_writing_rules" in tools["send_update"].description
     assert "copy the body" in tools["send_client_copy"].description
     assert "fixed report headings" in tools["send_client_copy"].description
     topic_schema = tools["send_client_copy"].input_schema["properties"]["topics"]
@@ -105,7 +102,9 @@ async def test_mcp_exposes_write_tools() -> None:
     assert tools["watch_wait"].annotations.read_only_hint is False
     assert tools["watch_reply"].annotations.read_only_hint is False
     assert tools["watch_wait"].input_schema["properties"]["timeout"]["default"] == 30
-    assert tools["inbox_fetch"].input_schema["properties"]["scope"]["default"] == "project"
+    assert (
+        tools["inbox_fetch"].input_schema["properties"]["scope"]["default"] == "project"
+    )
     assert "reply_to" not in tools["send_text"].input_schema["required"]
 
 
@@ -230,15 +229,20 @@ def test_inbox_project_scope_maps_to_all_owned_sources() -> None:
     from herald.config import CaptureChat, CaptureConfig, Config
 
     config = Config(
-        platforms={}, routes={}, projects={},
-        capture=CaptureConfig(chats=(
-            CaptureChat(-100, "project_a", 1, "project_a"),
-            CaptureChat(-100, "project_a_notes", 2, "project_a"),
-            CaptureChat(-100, "other_source", 3, "other_source"),
-        )),
+        platforms={},
+        routes={},
+        projects={},
+        capture=CaptureConfig(
+            chats=(
+                CaptureChat(-100, "project_a", 1, "project_a"),
+                CaptureChat(-100, "project_a_notes", 2, "project_a"),
+                CaptureChat(-100, "other_source", 3, "other_source"),
+            )
+        ),
     )
-    assert _inbox_filter(
-        config, project="project_a", chat=None, scope="project"
-    ) == ("project_a", "project_a_notes")
+    assert _inbox_filter(config, project="project_a", chat=None, scope="project") == (
+        "project_a",
+        "project_a_notes",
+    )
     with pytest.raises(ValueError, match="project is required"):
         _inbox_filter(config, project=None, chat=None, scope="project")

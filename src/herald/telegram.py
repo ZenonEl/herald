@@ -1,4 +1,5 @@
 import os
+from contextlib import ExitStack
 import mimetypes
 import json
 from pathlib import Path
@@ -36,6 +37,102 @@ class _RenderedTextCounter(HTMLParser):
 
 
 class TelegramAdapter:
+    def validate_files(
+        self,
+        attachments: list[Attachment],
+        caption: FormattedText,
+        *,
+        album: bool = False,
+    ) -> None:
+        if _rendered_length(caption) > MAX_CAPTION_LENGTH:
+            raise TelegramError("Caption exceeds Telegram's 1024-character limit")
+        for attachment in attachments:
+            if attachment.kind not in {"auto", "photo", "document"}:
+                raise ValueError("Unsupported attachment kind")
+            size = attachment.path.stat().st_size
+            if size > 50_000_000:
+                raise TelegramError("File exceeds the Telegram upload limit")
+            if attachment.kind == "photo" and size > MAX_PHOTO_BYTES:
+                raise TelegramError("Photo exceeds the Telegram photo limit")
+        if album and len({self._file_kind(item) for item in attachments}) != 1:
+            raise ValueError(
+                "Mixed photo/document album: use kind=document or mode=separate"
+            )
+
+    @staticmethod
+    def _file_kind(item: Attachment) -> str:
+        return (
+            "photo"
+            if item.kind == "photo"
+            or (
+                item.kind == "auto"
+                and item.path.suffix.lower() in PHOTO_SUFFIXES
+                and item.path.stat().st_size <= MAX_PHOTO_BYTES
+            )
+            else "document"
+        )
+
+    def send_album(
+        self,
+        destination: Destination,
+        attachments: list[Attachment],
+        caption: FormattedText,
+        target: ReplyTarget | None = None,
+    ) -> list[int]:
+        if not 2 <= len(attachments) <= 10:
+            raise ValueError("An album requires 2–10 files")
+        self.validate_files(attachments, caption, album=True)
+        kinds = [self._file_kind(item) for item in attachments]
+        data = {"chat_id": destination.chat_id}
+        if destination.topic_id is not None:
+            data["message_thread_id"] = destination.topic_id
+        if target is not None:
+            data["reply_parameters"] = json.dumps(
+                _reply_parameters(destination, target)
+            )
+        media = []
+        try:
+            with ExitStack() as stack:
+                files = {}
+                for index, (item, kind) in enumerate(zip(attachments, kinds)):
+                    key = f"file{index}"
+                    files[key] = (
+                        item.path.name,
+                        stack.enter_context(item.path.open("rb")),
+                        mimetypes.guess_type(item.path.name)[0]
+                        or "application/octet-stream",
+                    )
+                    entry = {"type": kind, "media": f"attach://{key}"}
+                    if index == 0:
+                        entry["caption"] = caption.text
+                        if caption.format == "html":
+                            entry["parse_mode"] = "HTML"
+                    media.append(entry)
+                data["media"] = json.dumps(media)
+                response = self._client.post(
+                    f"{self._api_base}/bot{self._read_token()}/sendMediaGroup",
+                    data=data,
+                    files=files,
+                )
+            body = response.json()
+        except httpx.HTTPError as error:
+            raise TelegramError(
+                f"Album delivery unconfirmed: {type(error).__name__}"
+            ) from error
+        except ValueError as error:
+            raise TelegramError("Album delivery unconfirmed: invalid JSON") from error
+        if not body.get("ok"):
+            raise TelegramError("Telegram rejected album; no automatic retry")
+        try:
+            ids = [int(item["message_id"]) for item in body["result"]]
+            if len(ids) != len(attachments):
+                raise ValueError("Unexpected receipt count")
+            return ids
+        except (KeyError, TypeError, ValueError) as error:
+            raise TelegramError(
+                "Album delivery unconfirmed: invalid receipt"
+            ) from error
+
     def __init__(
         self,
         token_env: str | None = None,
@@ -61,7 +158,9 @@ class TelegramAdapter:
         fallback: FormattedText,
     ) -> tuple[int, ReplyMode]:
         response, body = self._send_text(
-            destination, content, reply_parameters=_reply_parameters(destination, target)
+            destination,
+            content,
+            reply_parameters=_reply_parameters(destination, target),
         )
         if body.get("ok"):
             mode: ReplyMode = (
@@ -163,11 +262,7 @@ class TelegramAdapter:
                 f"Telegram allows {MAX_CAPTION_LENGTH}. Shorten the caption."
             )
         size = attachment.path.stat().st_size
-        is_photo = attachment.kind == "photo" or (
-            attachment.kind == "auto"
-            and attachment.path.suffix.lower() in PHOTO_SUFFIXES
-            and size <= MAX_PHOTO_BYTES
-        )
+        is_photo = self._file_kind(attachment) == "photo"
         if attachment.kind == "photo" and size > MAX_PHOTO_BYTES:
             raise TelegramError(
                 f"Photo is {size} bytes; Telegram photo limit is {MAX_PHOTO_BYTES} bytes"
@@ -185,8 +280,7 @@ class TelegramAdapter:
         if reply_parameters is not None:
             data["reply_parameters"] = json.dumps(reply_parameters)
         mime = (
-            mimetypes.guess_type(attachment.path.name)[0]
-            or "application/octet-stream"
+            mimetypes.guess_type(attachment.path.name)[0] or "application/octet-stream"
         )
         try:
             with attachment.path.open("rb") as file:
@@ -204,7 +298,9 @@ class TelegramAdapter:
             raise TelegramError("Telegram returned an invalid JSON response") from error
         return response, body
 
-    def get_updates(self, offset: int, timeout: int = 50, limit: int = 100) -> list[dict]:
+    def get_updates(
+        self, offset: int, timeout: int = 50, limit: int = 100
+    ) -> list[dict]:
         """Long-poll for updates. Only one client may do this per bot token."""
         try:
             response = self._client.post(
@@ -213,7 +309,7 @@ class TelegramAdapter:
                     "offset": offset,
                     "timeout": timeout,
                     "limit": limit,
-                        # Edits are deliberately not requested. An edit carries the
+                    # Edits are deliberately not requested. An edit carries the
                     # same message_id, so INSERT OR IGNORE would drop it while
                     # the offset moved on - a silent loss dressed as
                     # idempotency. The buffer does not track edits, and the
