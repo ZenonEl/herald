@@ -37,6 +37,27 @@ class _RenderedTextCounter(HTMLParser):
 
 
 class TelegramAdapter:
+    def validate_text(self, content: FormattedText) -> None:
+        if _rendered_length(content) > MAX_MESSAGE_LENGTH:
+            raise TelegramError("Text exceeds Telegram's 4096-character limit")
+
+    def send_linked(self, destination, content, target) -> int:
+        response, body = self._send_text(
+            destination,
+            content,
+            reply_parameters=_reply_parameters(destination, target),
+        )
+        return _message_id(response, body)
+
+    def send_file_linked(self, destination, attachment, caption, target) -> int:
+        response, body = self._send_attachment(
+            destination,
+            attachment,
+            caption,
+            reply_parameters=_reply_parameters(destination, target),
+        )
+        return _message_id(response, body)
+
     def validate_files(
         self,
         attachments: list[Attachment],

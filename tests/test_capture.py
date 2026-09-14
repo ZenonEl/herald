@@ -27,7 +27,6 @@ from herald.inbox import Inbox
 from herald.telegram import TelegramError
 from herald.watch import WatchStore
 
-
 CHAT = CaptureChat(chat_id=-100, slug="work")
 
 
@@ -59,9 +58,7 @@ def build(tmp_path: Path, **capture_changes) -> tuple[Capture, Inbox]:
     )
     inbox = Inbox(settings.database, settings.files_dir)
     inbox.prepare()
-    capture = Capture(
-        config, FakeSource(), inbox, bot_id=999, loader=lambda: config
-    )
+    capture = Capture(config, FakeSource(), inbox, bot_id=999, loader=lambda: config)
     return capture, inbox
 
 
@@ -73,7 +70,9 @@ class FakeSource:
         self.factor = 1
         self.sent: list[tuple] = []
 
-    def get_updates(self, offset: int, timeout: int = 50, limit: int = 100) -> list[dict]:
+    def get_updates(
+        self, offset: int, timeout: int = 50, limit: int = 100
+    ) -> list[dict]:
         return self.updates
 
     def download(self, file_id: str, target: Path, max_bytes: int | None = None) -> int:
@@ -130,7 +129,12 @@ def test_direct_message_has_no_origin() -> None:
 
 def test_photo_takes_the_largest_rendition() -> None:
     kind, media = media_of(
-        {"photo": [{"file_id": "small", "file_size": 10}, {"file_id": "big", "file_size": 99}]}
+        {
+            "photo": [
+                {"file_id": "small", "file_size": 10},
+                {"file_id": "big", "file_size": 99},
+            ]
+        }
     )
     assert kind == "photo"
     assert media["file_id"] == "big"
@@ -138,7 +142,9 @@ def test_photo_takes_the_largest_rendition() -> None:
 
 def test_caption_becomes_text() -> None:
     captured = normalize(
-        update(1, text=None, caption="список товаров", document={"file_id": "d1"})["message"],
+        update(1, text=None, caption="список товаров", document={"file_id": "d1"})[
+            "message"
+        ],
         CHAT,
     )
     assert captured.text == "список товаров"
@@ -245,9 +251,7 @@ def test_one_poll_routes_watch_dm_without_putting_it_in_capture(
         watch=WatchConfig(
             enabled=True,
             sources={"owner": WatchSource(7, 7)},
-            profiles={
-                "alpha": WatchProfile(("alpha",), "owner", "alpha")
-            },
+            profiles={"alpha": WatchProfile(("alpha",), "owner", "alpha")},
         ),
     )
     capture._loader = lambda: capture.config
@@ -268,8 +272,10 @@ def test_one_poll_routes_watch_dm_without_putting_it_in_capture(
     assert watch.wait(duty["duty_id"], timeout=0)["text"] == "Проверь задачу"
 
 
+@pytest.mark.parametrize("command", ["/help", "/status"])
 def test_watch_help_replies_to_allowed_owner_without_creating_delivery(
     tmp_path: Path,
+    command: str,
 ) -> None:
     capture, inbox = build(tmp_path)
     watch = WatchStore(inbox)
@@ -280,13 +286,11 @@ def test_watch_help_replies_to_allowed_owner_without_creating_delivery(
         watch=WatchConfig(
             enabled=True,
             sources={"owner": WatchSource(7, 7)},
-            profiles={
-                "alpha": WatchProfile(("101", "alpha"), "owner", "alpha")
-            },
+            profiles={"alpha": WatchProfile(("101", "alpha"), "owner", "alpha")},
         ),
     )
     capture._loader = lambda: capture.config
-    direct = update(2, text="/help")
+    direct = update(2, text=command)
     direct["message"]["chat"] = {"id": 7, "type": "private"}
     capture.source.updates = [direct]
 
@@ -294,18 +298,29 @@ def test_watch_help_replies_to_allowed_owner_without_creating_delivery(
     assert len(capture.source.sent) == 1
     help_message = capture.source.sent[0][1]
     assert help_message.format == "html"
-    assert "<code>alpha</code>" in help_message.text
-    assert "<code>#101</code>, <code>#alpha</code>" in help_message.text
-    assert "<code>#all Дайте краткий статус</code>" in help_message.text
-    assert "Покажи inbox проекта" in help_message.text
+    if command == "/help":
+        assert "<code>alpha</code>" in help_message.text
+        assert "<code>#101</code>, <code>#alpha</code>" in help_message.text
+        assert "<code>#all Дайте краткий статус</code>" in help_message.text
+        assert "Покажи inbox проекта" in help_message.text
+    else:
+        assert "Активных регистраций нет" in help_message.text
     assert len(help_message.text) <= 3_800
     duty = watch.start(
-        capture.config, profiles=["alpha"], primary_profile=None,
-        agent="Codex", model="GPT", session_name="alpha",
+        capture.config,
+        profiles=["alpha"],
+        primary_profile=None,
+        agent="Codex",
+        model="GPT",
+        session_name="alpha",
     )
     assert watch.wait(duty["duty_id"], timeout=0) is None
 
-    unauthorized = update(3, text="/help", **{"from": {"id": 99}})
+    status = capture._watch_status("owner")
+    assert "Опрос ИИ:" in status and "alpha" in status
+    assert "alpha" not in capture._watch_status("unrelated")
+
+    unauthorized = update(3, text=command, **{"from": {"id": 99}})
     unauthorized["message"]["chat"] = {"id": 99, "type": "private"}
     capture.source.updates = [unauthorized]
     assert capture.cycle(timeout=0) == 0
@@ -322,9 +337,7 @@ def test_watch_start_is_short_and_separate_from_help(tmp_path: Path) -> None:
         watch=WatchConfig(
             enabled=True,
             sources={"owner": WatchSource(7, 7)},
-            profiles={
-                "alpha": WatchProfile(("alpha",), "owner", "alpha")
-            },
+            profiles={"alpha": WatchProfile(("alpha",), "owner", "alpha")},
         ),
     )
     capture._loader = lambda: capture.config
@@ -346,11 +359,13 @@ def test_collect_keeps_only_the_listed_topic(tmp_path: Path) -> None:
         capture.config, capture=replace(capture.settings, chats=(topic,))
     )
 
-    collected, _ = capture.collect([
-        update(1, message_thread_id=41),
-        update(2, message_thread_id=42),
-        update(3),
-    ])
+    collected, _ = capture.collect(
+        [
+            update(1, message_thread_id=41),
+            update(2, message_thread_id=42),
+            update(3),
+        ]
+    )
 
     assert [message.message_id for message in collected] == [1]
     assert collected[0].chat_slug == "topic_41"
@@ -366,10 +381,12 @@ def test_two_topics_in_one_chat_use_separate_slugs(tmp_path: Path) -> None:
         capture.config, capture=replace(capture.settings, chats=topics)
     )
 
-    collected, _ = capture.collect([
-        update(1, message_thread_id=41),
-        update(2, message_thread_id=42),
-    ])
+    collected, _ = capture.collect(
+        [
+            update(1, message_thread_id=41),
+            update(2, message_thread_id=42),
+        ]
+    )
 
     assert [message.chat_slug for message in collected] == [
         "topic_41",
@@ -400,9 +417,9 @@ def test_reply_backfills_an_old_parent_from_the_allowed_topic(tmp_path: Path) ->
         document={"file_id": "old-file", "file_name": "old.pdf", "file_size": 7},
     )["message"]
 
-    collected, _ = capture.collect([
-        update(41, message_thread_id=41, reply_to_message=parent)
-    ])
+    collected, _ = capture.collect(
+        [update(41, message_thread_id=41, reply_to_message=parent)]
+    )
 
     assert [message.message_id for message in collected] == [40, 41]
     assert collected[0].text == "Старое важное сообщение"
@@ -424,14 +441,16 @@ def test_reply_does_not_backfill_a_parent_from_an_unlisted_topic(
     )
     parent = update(40, message_thread_id=42, text="Чужой топик")["message"]
 
-    collected, _ = capture.collect([
-        update(
-            41,
-            message_thread_id=41,
-            reply_to_message=parent,
-            quote={"text": "видимая цитата", "position": 0},
-        )
-    ])
+    collected, _ = capture.collect(
+        [
+            update(
+                41,
+                message_thread_id=41,
+                reply_to_message=parent,
+                quote={"text": "видимая цитата", "position": 0},
+            )
+        ]
+    )
 
     assert [message.message_id for message in collected] == [41]
     assert collected[0].reply_context == {
@@ -460,7 +479,11 @@ def test_oversized_media_is_recorded_not_dropped(tmp_path: Path) -> None:
     capture, _ = build(tmp_path, max_download_bytes=10)
     capture.source.factor = 100
     collected, _ = capture.collect(
-        [update(1, document={"file_id": "big", "file_size": 5000, "file_name": "a.csv"})]
+        [
+            update(
+                1, document={"file_id": "big", "file_size": 5000, "file_name": "a.csv"}
+            )
+        ]
     )
     resolved = capture.download_media(collected)
     assert resolved[0].local_path is None
@@ -510,8 +533,16 @@ def test_an_unwritable_file_does_not_abort_the_batch(tmp_path: Path) -> None:
 def test_a_long_filename_is_truncated_not_fatal(tmp_path: Path) -> None:
     capture, _ = build(tmp_path)
     collected, _ = capture.collect(
-        [update(1, document={"file_id": "x", "file_size": 7,
-                             "file_name": "a" * 300 + ".pdf"})]
+        [
+            update(
+                1,
+                document={
+                    "file_id": "x",
+                    "file_size": 7,
+                    "file_name": "a" * 300 + ".pdf",
+                },
+            )
+        ]
     )
     target = capture.target(collected[0])
     assert len(target.name.encode()) <= 160
@@ -523,8 +554,16 @@ def test_a_long_non_latin_filename_fits_the_byte_limit(tmp_path: Path) -> None:
     """NAME_MAX counts bytes: 127 CJK characters are 381 bytes and still fail."""
     capture, _ = build(tmp_path)
     collected, _ = capture.collect(
-        [update(1, document={"file_id": "x", "file_size": 7,
-                             "file_name": "файл" * 100 + ".pdf"})]
+        [
+            update(
+                1,
+                document={
+                    "file_id": "x",
+                    "file_size": 7,
+                    "file_name": "файл" * 100 + ".pdf",
+                },
+            )
+        ]
     )
     assert len(capture.target(collected[0]).name.encode()) <= 160
     assert capture.download_media(collected)[0].local_path is not None
@@ -534,7 +573,9 @@ def test_turning_capture_off_stops_storing_without_a_restart(tmp_path: Path) -> 
     capture, _ = build(tmp_path)
     capture.source.updates = [update(1)]
     assert capture.cycle(timeout=0) == 1
-    off = replace(capture.config, capture=replace(capture.config.capture, enabled=False))
+    off = replace(
+        capture.config, capture=replace(capture.config.capture, enabled=False)
+    )
     capture._loader = lambda: off
     capture.source.updates = [update(2)]
     assert capture.cycle(timeout=0) == 0
@@ -580,7 +621,9 @@ def test_removing_a_chat_from_the_config_stops_capture(tmp_path: Path) -> None:
     capture, _ = build(tmp_path)
     capture.source.updates = [update(1)]
     assert capture.cycle(timeout=0) == 1
-    narrowed = replace(capture.config, capture=replace(capture.config.capture, chats=()))
+    narrowed = replace(
+        capture.config, capture=replace(capture.config.capture, chats=())
+    )
     capture._loader = lambda: narrowed
     capture.source.updates = [update(2)]
     assert capture.cycle(timeout=0) == 0

@@ -49,6 +49,19 @@ class Attachment:
 
 
 @dataclass(frozen=True, slots=True)
+class BatchPart:
+    id: str
+    role: str = "client"
+    kind: Literal["text", "file", "album", "provenance"] = "text"
+    text: str = ""
+    paths: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    reply_to: str | None = None
+    format: TextFormat = "html"
+    file_kind: AttachmentKind = "auto"
+
+
+@dataclass(frozen=True, slots=True)
 class Destination:
     chat_id: str
     topic_id: int | None = None
@@ -80,6 +93,20 @@ class Receipt:
 
 
 class Messenger(Protocol):
+    def validate_text(self, content: FormattedText) -> None: ...
+
+    def send_linked(
+        self, destination: Destination, content: FormattedText, target: ReplyTarget
+    ) -> int: ...
+
+    def send_file_linked(
+        self,
+        destination: Destination,
+        attachment: Attachment,
+        caption: FormattedText,
+        target: ReplyTarget,
+    ) -> int: ...
+
     def send_album(
         self,
         destination: Destination,

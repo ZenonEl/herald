@@ -30,11 +30,19 @@ Example requests:
 >
 > Read the demo project's inbox.
 
-Each outgoing message or album caption includes a compact signature:
+The batch workflow defaults to clean client text with a separate signature reply.
+Existing single-message tools keep their inline signature:
 
 ```text
 — Claude Code · model name · Demo · Review
 ```
+
+Use `herald-draft` to prepare client-ready text without sending. Named batches can
+combine text, files, albums and provenance. See [drafts and batches](docs/batches.md).
+
+Watch exposes real poll time, reported activity and monitor liveness through
+`/status` in the owner's bot DM. Registration alone does not mean the AI listens;
+see [Watch runtime](docs/watch-runtime.md) for Claude/Codex wake-up limitations.
 
 ## Install
 

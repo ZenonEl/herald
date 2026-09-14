@@ -1,0 +1,4 @@
+interface:
+  display_name: "Herald Draft"
+  short_description: "Prepare client-ready messages before sending"
+  default_prompt: "Use $herald-draft to prepare a client-ready message with the project's writing rules, without sending it."

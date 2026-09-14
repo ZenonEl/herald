@@ -7,7 +7,6 @@ from typing import Any, Mapping
 
 from herald.domain import Destination
 
-
 DEFAULT_CONFIG_PATH = Path("~/.config/herald/config.toml").expanduser()
 
 
@@ -33,6 +32,14 @@ class ProjectConfig:
     label: str
     route: str
     description: str | None = None
+    batch_template: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DeliveryConfig:
+    database: Path = Path("~/.local/share/herald/outbox.db").expanduser()
+    default_template: str = "client_reply"
+    templates: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +126,7 @@ class Config:
     files: FilePolicy = FilePolicy()
     capture: CaptureConfig = CaptureConfig()
     watch: WatchConfig = WatchConfig()
+    delivery: DeliveryConfig = field(default_factory=DeliveryConfig)
 
 
 def config_path() -> Path:
@@ -170,6 +178,9 @@ def load_config(path: Path | None = None) -> Config:
                 description=_optional_string(
                     data.get("description"), f"projects.{name}.description"
                 ),
+                batch_template=_optional_string(
+                    data.get("batch_template"), f"projects.{name}.batch_template"
+                ),
             )
             for name, data in _optional_table(raw, "projects").items()
         }
@@ -182,7 +193,11 @@ def load_config(path: Path | None = None) -> Config:
         ):
             raise ConfigError("files.allowed_roots must be an array of paths")
         max_bytes = files_raw.get("max_bytes", 50_000_000)
-        if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes <= 0:
+        if (
+            not isinstance(max_bytes, int)
+            or isinstance(max_bytes, bool)
+            or max_bytes <= 0
+        ):
             raise ConfigError("files.max_bytes must be a positive integer")
         files = FilePolicy(
             allowed_roots=tuple(
@@ -192,6 +207,21 @@ def load_config(path: Path | None = None) -> Config:
         )
         capture = _capture(raw.get("capture"))
         watch = _watch(raw.get("watch"))
+        delivery_raw = raw.get("delivery", {})
+        if not isinstance(delivery_raw, dict):
+            raise ConfigError("delivery must be a table")
+        templates = delivery_raw.get("templates", {})
+        if not isinstance(templates, dict):
+            raise ConfigError("delivery.templates must be a table")
+        delivery = DeliveryConfig(
+            database=_optional_path(delivery_raw.get("database"), "delivery.database")
+            or DeliveryConfig().database,
+            default_template=_optional_string(
+                delivery_raw.get("default_template"), "delivery.default_template"
+            )
+            or "client_reply",
+            templates=templates,
+        )
     except KeyError as error:
         raise ConfigError(f"Missing config key: {error.args[0]}") from error
 
@@ -268,6 +298,7 @@ def load_config(path: Path | None = None) -> Config:
         files=files,
         capture=capture,
         watch=watch,
+        delivery=delivery,
     )
 
 
@@ -294,8 +325,12 @@ def _watch(raw: Any) -> WatchConfig:
     sources: dict[str, WatchSource] = {}
     for name, entry in sources_raw.items():
         sources[name] = WatchSource(
-            chat_id=_required_int(entry.get("chat_id"), f"watch.sources.{name}.chat_id"),
-            user_id=_required_int(entry.get("user_id"), f"watch.sources.{name}.user_id"),
+            chat_id=_required_int(
+                entry.get("chat_id"), f"watch.sources.{name}.chat_id"
+            ),
+            user_id=_required_int(
+                entry.get("user_id"), f"watch.sources.{name}.user_id"
+            ),
         )
 
     profiles: dict[str, WatchProfile] = {}
@@ -321,16 +356,22 @@ def _watch(raw: Any) -> WatchConfig:
                 )
             seen_tags[folded] = name
             tags.append(tag)
-        response_format = _optional_string(
-            entry.get("response_format"), f"watch.profiles.{name}.response_format"
-        ) or "brief"
+        response_format = (
+            _optional_string(
+                entry.get("response_format"), f"watch.profiles.{name}.response_format"
+            )
+            or "brief"
+        )
         if response_format not in {"brief", "standard", "detailed"}:
             raise ConfigError(
                 f"watch.profiles.{name}.response_format must be brief, standard, or detailed"
             )
-        reply_context = _optional_string(
-            entry.get("reply_context"), f"watch.profiles.{name}.reply_context"
-        ) or "native_or_quote"
+        reply_context = (
+            _optional_string(
+                entry.get("reply_context"), f"watch.profiles.{name}.reply_context"
+            )
+            or "native_or_quote"
+        )
         if reply_context not in {"native_or_quote", "native_only", "none"}:
             raise ConfigError(
                 f"watch.profiles.{name}.reply_context must be native_or_quote, "
@@ -395,8 +436,7 @@ def _capture(raw: Any) -> CaptureConfig:
             suffix = f" topic {topic_id}" if topic_id is not None else ""
             raise ConfigError(f"capture.chats lists chat {chat_id}{suffix} twice")
         if any(
-            seen_chat_id == chat_id
-            and (seen_topic_id is None or topic_id is None)
+            seen_chat_id == chat_id and (seen_topic_id is None or topic_id is None)
             for seen_chat_id, seen_topic_id in seen_targets
         ):
             raise ConfigError(
@@ -424,7 +464,9 @@ def _capture(raw: Any) -> CaptureConfig:
         or defaults.database,
         files_dir=_optional_path(raw.get("files_dir"), "capture.files_dir")
         or defaults.files_dir,
-        ttl_days=_positive_int(raw.get("ttl_days"), "capture.ttl_days", defaults.ttl_days),
+        ttl_days=_positive_int(
+            raw.get("ttl_days"), "capture.ttl_days", defaults.ttl_days
+        ),
         capture_self=_flag(
             raw.get("capture_self"), "capture.capture_self", defaults.capture_self
         ),
@@ -474,7 +516,9 @@ def _reaction(
     return value.strip()
 
 
-def _optional_table(raw: Mapping[str, Any], key: str) -> Mapping[str, Mapping[str, Any]]:
+def _optional_table(
+    raw: Mapping[str, Any], key: str
+) -> Mapping[str, Mapping[str, Any]]:
     """Routes and projects are only needed for sending.
 
     Requiring them made a capture-only setup invent a fake route into a chat it

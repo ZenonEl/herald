@@ -40,6 +40,21 @@ route = "work"
     assert config.files.max_bytes == 12345
 
 
+def test_optional_delivery_config_and_project_template(tmp_path):
+    example = Path(__file__).parents[1] / "config.example.toml"
+    path = tmp_path / "config.toml"
+    path.write_text(
+        example.read_text().replace(
+            '# batch_template = "client_only"', 'batch_template = "client_only"'
+        )
+        + '\n[[delivery.templates.custom]]\nid = "answer"\nrole = "client"\n'
+    )
+    config = load_config(path)
+    assert config.delivery.default_template == "client_reply"
+    assert config.projects["example"].batch_template == "client_only"
+    assert config.delivery.templates["custom"] == [{"id": "answer", "role": "client"}]
+
+
 def test_rejects_unknown_platform(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     path.write_text(
@@ -119,8 +134,7 @@ user_id = 7
 """
     path = tmp_path / "config.toml"
     path.write_text(
-        base
-        + """
+        base + """
 [watch.profiles.one]
 tags = ["same"]
 source = "owner"
@@ -136,8 +150,7 @@ project = "two"
         load_config(path)
 
     path.write_text(
-        base
-        + """
+        base + """
 [watch.profiles.one]
 tags = ["all"]
 source = "owner"

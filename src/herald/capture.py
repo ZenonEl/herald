@@ -17,7 +17,6 @@ from herald.inbox import CapturedMessage, Inbox
 from herald.telegram import TelegramAdapter, TelegramError
 from herald.watch import WatchInput, WatchStore
 
-
 log = logging.getLogger("herald.capture")
 CAPTURE_LOCK_DIR = Path("~/.local/share/herald/locks").expanduser()
 WATCH_HELP_SAFE_LENGTH = 3_800
@@ -35,7 +34,9 @@ MEDIA_FIELDS = (
 
 
 class Source(Protocol):
-    def get_updates(self, offset: int, timeout: int = 50, limit: int = 100) -> list[dict]: ...
+    def get_updates(
+        self, offset: int, timeout: int = 50, limit: int = 100
+    ) -> list[dict]: ...
 
     def download(self, file_id: str, target: Path) -> int: ...
 
@@ -116,8 +117,10 @@ def sender_of(message: dict) -> tuple[dict, str]:
     if isinstance(chat, dict) and chat:
         signature = str(message.get("author_signature") or "").strip()
         title = str(chat.get("title") or "").strip()
-        shown = f"{title} ({signature})" if signature and title else (
-            signature or title or "анонимный отправитель"
+        shown = (
+            f"{title} ({signature})"
+            if signature and title
+            else (signature or title or "анонимный отправитель")
         )
         return {"id": chat.get("id"), "is_bot": False}, shown
     return {}, "автор не указан"
@@ -267,9 +270,9 @@ class Capture:
                 )
                 fresh = replace(
                     fresh,
-                    capture=replace(fresh.capture, **{
-                        field: getattr(self.config.capture, field)
-                    }),
+                    capture=replace(
+                        fresh.capture, **{field: getattr(self.config.capture, field)}
+                    ),
                 )
         self.config = fresh
 
@@ -278,11 +281,16 @@ class Capture:
         return self.config.capture
 
     def target(self, message: CapturedMessage) -> Path:
-        name = message.file_name or f"{message.media_kind or 'file'}-{message.message_id}"
-        safe = "".join(
-            character if character.isalnum() or character in "._- " else "_"
-            for character in name
-        ).strip() or f"file-{message.message_id}"
+        name = (
+            message.file_name or f"{message.media_kind or 'file'}-{message.message_id}"
+        )
+        safe = (
+            "".join(
+                character if character.isalnum() or character in "._- " else "_"
+                for character in name
+            ).strip()
+            or f"file-{message.message_id}"
+        )
         # Telegram allows names far longer than a filesystem component, and an
         # over-long path raises OSError rather than TelegramError - which used
         # to take the whole daemon down.
@@ -294,8 +302,10 @@ class Capture:
         stem = stem if dot and suffix else safe
         budget = 160 - len(f"{message.message_id}_".encode()) - len(suffix.encode())
         safe = _clip(stem, budget) + suffix
-        return self.settings.files_dir.expanduser() / message.chat_slug / (
-            f"{message.message_id}_{safe}"
+        return (
+            self.settings.files_dir.expanduser()
+            / message.chat_slug
+            / (f"{message.message_id}_{safe}")
         )
 
     def collect(self, updates: list[dict]) -> tuple[list[CapturedMessage], int]:
@@ -319,7 +329,10 @@ class Capture:
             author, _ = sender_of(payload)
             if self.bot_id is not None and author.get("id") == self.bot_id:
                 continue
-            if not self.settings.capture_self and author.get("id") == self.settings.self_id:
+            if (
+                not self.settings.capture_self
+                and author.get("id") == self.settings.self_id
+            ):
                 continue
             parent = payload.get("reply_to_message")
             parent_allowed = True
@@ -375,9 +388,13 @@ class Capture:
             command = _watch_bot_command(text) if source_name is not None else None
             if command is not None:
                 response = (
-                    self._watch_help(source_name)
-                    if command == "help"
-                    else self._watch_start_message()
+                    self._watch_status(source_name)
+                    if command == "status"
+                    else (
+                        self._watch_help(source_name)
+                        if command == "help"
+                        else self._watch_start_message()
+                    )
                 )
                 self.source.send(
                     Destination(str(chat_id)),
@@ -401,6 +418,38 @@ class Capture:
                 ),
             )
         return stored
+
+    def _watch_status(self, source_name: str) -> str:
+        rows = self.watch.source_status(self.config.watch, source_name)
+        labels = {
+            "registered": "зарегистрирован, опрос ещё не начат",
+            "waiting": "последний опрос: ожидание сообщений",
+            "processing": "обрабатывает (последнее состояние)",
+            "waiting_user": "ждёт ответа пользователя",
+            "idle": "закончил обработку",
+            "unknown": "нет свежих данных о сессии",
+            "stopped": "остановлен",
+        }
+        lines = ["<b>Herald Watch: состояние</b>"]
+        for row in rows:
+            age = row["poll_age_seconds"]
+            polled = "не было" if age is None else f"{age} сек. назад"
+            line = (
+                f"<b>{escape(row['session_name'][:100])}</b> · {escape(', '.join(row['profiles'])[:150])}\n"
+                f"{labels[row['observed_state']]}\nОпрос ИИ: {polled}; "
+                f"монитор: {'жив' if row['monitor_alive'] else 'нет свежего сигнала'}; "
+                f"в очереди: {row['deliveries'].get('pending', 0)}"
+            )
+            if sum(len(item) for item in lines) + len(line) > 3400:
+                lines.append("Есть другие сессии; подробности через watch_status.")
+                break
+            lines.append(line)
+        if not rows:
+            lines.append("Активных регистраций нет.")
+        lines.append(
+            "Живой монитор не доказывает, что ИИ проснулась. Смотрите время опроса."
+        )
+        return "\n\n".join(lines)
 
     def _watch_source_name(
         self, chat_id: int, user_id: int, chat_type: str
@@ -448,7 +497,7 @@ class Capture:
             "По умолчанию читаются только источники этого проекта.\n\n"
             "<b>Остановить Watch</b>\n"
             "В AI-сессии: <code>Выключи дежурство Herald</code>\n\n"
-            "/help — повторить памятку"
+            "/status — состояние сессий и последний опрос\n/help — повторить памятку"
         )
         budget = WATCH_HELP_SAFE_LENGTH - len(before) - len(after)
         lines: list[str] = []
@@ -501,7 +550,9 @@ class Capture:
                 # One unwritable file must not abort the batch: the text of every
                 # other message in it would be lost with it.
                 resolved.append(
-                    replace(message, media_note=f"not downloaded: {type(error).__name__}")
+                    replace(
+                        message, media_note=f"not downloaded: {type(error).__name__}"
+                    )
                 )
                 continue
             resolved.append(
@@ -532,7 +583,9 @@ class Capture:
             return 0
         offset = self.inbox.offset()
         updates = self.source.get_updates(offset=offset, timeout=timeout)
-        highest = max((int(update.get("update_id", 0)) for update in updates), default=0)
+        highest = max(
+            (int(update.get("update_id", 0)) for update in updates), default=0
+        )
         stored = 0
         if self.settings.enabled:
             messages, _ = self.collect(updates)
@@ -547,7 +600,7 @@ class Capture:
 
 def _clip(text: str, budget: int) -> str:
     """Обрезать строку так, чтобы её utf-8 представление влезло в budget байт."""
-    encoded = text.encode()[:max(budget, 8)]
+    encoded = text.encode()[: max(budget, 8)]
     return encoded.decode(errors="ignore") or "file"
 
 
@@ -558,6 +611,8 @@ def _watch_bot_command(text: str) -> str | None:
         return "help"
     if command == "/start":
         return "start"
+    if command == "/status":
+        return "status"
     return None
 
 
@@ -607,7 +662,8 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--once", action="store_true",
+        "--once",
+        action="store_true",
         help="run a single poll and exit, for checking the setup",
     )
     args = parser.parse_args()
@@ -700,7 +756,8 @@ def main() -> None:
                 if removed or orphans:
                     log.info(
                         "purged %d archived message(s), %d orphaned file(s)",
-                        removed, orphans,
+                        removed,
+                        orphans,
                     )
             except Exception:
                 log.exception("purge failed, continuing")

@@ -22,6 +22,11 @@ async def test_mcp_exposes_write_tools() -> None:
 
     tools = {tool.name: tool for tool in result.tools}
     assert set(tools) == {
+        "batch_templates",
+        "preview_batch",
+        "send_batch",
+        "batch_status",
+        "watch_activity",
         "send_files",
         "get_writing_rules",
         "list_destinations",

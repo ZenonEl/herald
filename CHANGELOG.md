@@ -3,6 +3,25 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.8.0-beta.4] — 2026-09-14
+
+### Added
+
+- Draft skill loads writing rules and reviews client-ready text before sending.
+- Configurable named batches: text, files, albums, arbitrary roles/tags and native
+  replies to earlier parts. Default clean copy with a separate provenance reply.
+- Structural preview, durable idempotent receipts and explicit partial-delivery
+  states. Uncertain sends are never automatically repeated.
+- Watch activity, actual poll time, companion monitor heartbeat and owner `/status`.
+- Companion monitor command for hosts with real wake-up support; explicit Claude
+  and Codex fallback instructions when that support is unavailable.
+
+### Changed
+
+- Shared writing defaults address the client directly. Existing config and single
+  sends remain compatible; inbox filtering is unchanged.
+- Shared body hygiene applies to new batches, including accidental protocol tags.
+
 ## [0.8.0-beta.3] — 2026-09-08
 
 ### Added

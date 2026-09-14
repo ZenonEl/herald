@@ -6,6 +6,12 @@ token_file = "~/.config/herald/telegram.token"
 allowed_roots = ["~/Herald/outbox"]
 max_bytes = 50000000
 
+# New batch workflow only; legacy single sends keep inline signatures.
+[delivery]
+default_template = "client_reply"  # or client_only / review_client
+# database = "~/.local/share/herald/outbox.db"
+# Custom named parts: see docs/batches.md. Keep the ledger outside Git.
+
 # Optional Markdown overrides. Relative paths resolve beside this config file.
 # Missing individual files fall back to the packaged defaults.
 [prompts]
@@ -17,6 +23,7 @@ chat_id = "-1001234567890"
 topic_id = 42
 
 [projects.example]
+# batch_template = "client_only"  # optional per-project override
 # style_file = "styles/example.md"  # replaces the global writing style for this project
 label = "Example project"
 description = "Use for messages about the example project."

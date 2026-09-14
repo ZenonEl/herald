@@ -1,9 +1,10 @@
-By default, use send_text with HTML and a free-form structure. Write for a manager who has not
-followed the project and is far from its technical work. The message must stand on its own and
+By default, write free-form Telegram HTML addressed directly to the client in plain
+business language. The manager forwards it unchanged, without investigating the
+project or rewriting internal instructions. The message must stand on its own and
 make the subject, current state, practical consequence, and any required action understandable
 without reading the project history. Prefer wording that the manager can forward directly to the
-client; otherwise make it possible to compose the client message from the text without researching
-the project. Do not force fixed report headings or a fixed number of paragraphs or list items.
+client. Keep internal commentary in a separate part when requested. Do not force
+fixed report headings or a fixed number of paragraphs or list items.
 Use headings and lists only when they make this particular message easier to scan.
 Default to brief editorial density: preserve the concrete facts needed to understand or act,
 but remove commentary, repetition, and proof-of-work detail.

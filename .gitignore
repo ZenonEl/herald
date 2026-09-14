@@ -4,3 +4,11 @@ __pycache__/
 .coverage
 dist/
 *.py[cod]
+# Local capture/outbox data and credentials must never be published.
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.token
+config.local.toml

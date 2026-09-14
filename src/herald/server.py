@@ -1,14 +1,23 @@
 from dataclasses import asdict
 from importlib.metadata import version
 import logging
+import sys
 from pathlib import Path
 from typing import Literal
 
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
-from herald.config import Config, ConfigError, load_config
-from herald.domain import ClientTopic, InboxMessageKey, Message, Receipt, ReplyTarget
+from herald.config import Config, ConfigError, config_path, load_config
+from herald.domain import (
+    BatchPart,
+    ClientTopic,
+    InboxMessageKey,
+    Message,
+    Receipt,
+    ReplyTarget,
+)
+from herald.batches import Batches
 from herald.inbox import Inbox
 from herald.service import Herald, render_client_copy, render_update
 from herald.telegram import TelegramAdapter
@@ -87,6 +96,66 @@ def _send_message(
 def get_writing_rules(project: str | None = None) -> dict:
 
     return {"style": load_prompt("style", project)}
+
+
+@mcp.tool(
+    annotations=READ_ANNOTATIONS, description=load_prompt("tools/batch_templates")
+)
+def batch_templates(project: str) -> dict:
+    return Batches(build_service()).templates(project)
+
+
+@mcp.tool(annotations=READ_ANNOTATIONS, description=load_prompt("tools/preview_batch"))
+def preview_batch(
+    project: str,
+    subject: str,
+    agent: str,
+    model: str,
+    parts: list[BatchPart] | None = None,
+    template: str | None = None,
+    contents: dict[str, dict] | None = None,
+    route: str | None = None,
+) -> dict:
+    return Batches(build_service()).preview(
+        project=project,
+        subject=subject,
+        agent=agent,
+        model=model,
+        parts=parts,
+        template=template,
+        contents=contents,
+        route=route,
+    )
+
+
+@mcp.tool(annotations=WRITE_ANNOTATIONS, description=load_prompt("tools/send_batch"))
+def send_batch(
+    request_id: str,
+    project: str,
+    subject: str,
+    agent: str,
+    model: str,
+    parts: list[BatchPart] | None = None,
+    template: str | None = None,
+    contents: dict[str, dict] | None = None,
+    route: str | None = None,
+) -> dict:
+    return Batches(build_service()).send(
+        request_id,
+        project=project,
+        subject=subject,
+        agent=agent,
+        model=model,
+        parts=parts,
+        template=template,
+        contents=contents,
+        route=route,
+    )
+
+
+@mcp.tool(annotations=READ_ANNOTATIONS, description=load_prompt("tools/batch_status"))
+def batch_status(request_id: str) -> dict:
+    return Batches(build_service()).status(request_id)
 
 
 @mcp.tool(
@@ -536,7 +605,28 @@ def watch_start(
         }
         for name in duty["profiles"]
     }
+    duty["monitor_command"] = [
+        sys.executable,
+        "-m",
+        "herald.watch_monitor",
+        duty["duty_id"],
+        "--config",
+        str(config_path().resolve()),
+    ]
+    duty["activation"] = (
+        "registered_only; poll or attach a verified host wake-up monitor"
+    )
     return duty
+
+
+@mcp.tool(
+    annotations=WRITE_ANNOTATIONS, description=load_prompt("tools/watch_activity")
+)
+def watch_activity(
+    duty_id: str, state: Literal["processing", "waiting_user", "idle"]
+) -> dict:
+    _, watch = _watch()
+    return watch.activity(duty_id, state)
 
 
 @mcp.tool(annotations=WRITE_ANNOTATIONS, description=load_prompt("tools/watch_wait"))

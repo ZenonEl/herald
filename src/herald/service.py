@@ -366,7 +366,7 @@ def render_update(
 
 
 def render_message(message: Message, project_label: str) -> FormattedText:
-    text = _strip_model_protocol_lines(message.text).strip()
+    text = render_body(message.text, message.format).text
     if not text:
         raise ValueError("Message text cannot be empty")
     for name, value in (
@@ -385,11 +385,6 @@ def render_message(message: Message, project_label: str) -> FormattedText:
         message.subject,
     )
     if message.format == "html":
-        if _ESCAPED_TELEGRAM_TAG.search(text):
-            raise ValueError(
-                "HTML tags are escaped. Pass raw Telegram HTML such as <b>text</b>, "
-                "not &lt;b&gt;text&lt;/b&gt;."
-            )
         metadata = " · ".join(escape(part.strip()) for part in metadata_parts)
         reference = escape(message.reference.strip()) if message.reference else None
         footer = f"<i>— {metadata}</i>"
@@ -409,3 +404,13 @@ def render_message(message: Message, project_label: str) -> FormattedText:
 def _strip_model_protocol_lines(text: str) -> str:
     """Remove standalone Claude protocol tags accidentally copied into user text."""
     return _MODEL_PROTOCOL_LINE.sub("", text)
+
+
+def render_body(text: str, format: str) -> FormattedText:
+    """Shared body hygiene, independent of delivery layout and provenance."""
+    text = _strip_model_protocol_lines(text).strip()
+    if format not in {"plain", "html"}:
+        raise ValueError(f"Unsupported text format: {format!r}")
+    if format == "html" and _ESCAPED_TELEGRAM_TAG.search(text):
+        raise ValueError("HTML tags are escaped. Pass raw Telegram HTML tags.")
+    return FormattedText(text, format)

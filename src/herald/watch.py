@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 import json
 import re
@@ -8,7 +9,6 @@ from typing import Literal
 
 from herald.config import Config, WatchConfig
 from herald.inbox import Inbox, now
-
 
 WATCH_SCHEMA = """
 CREATE TABLE IF NOT EXISTS watch_duties (
@@ -74,6 +74,20 @@ class WatchStore:
     def prepare(self) -> None:
         with self.inbox.connect() as connection:
             connection.executescript(WATCH_SCHEMA)
+            connection.execute("BEGIN IMMEDIATE")
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(watch_duties)")
+            }
+            for name, definition in {
+                "activity": "TEXT NOT NULL DEFAULT 'registered'",
+                "activity_at": "TEXT",
+                "last_poll_at": "TEXT",
+                "monitor_at": "TEXT",
+            }.items():
+                if name not in columns:
+                    connection.execute(
+                        f"ALTER TABLE watch_duties ADD COLUMN {name} {definition}"
+                    )
             connection.commit()
 
     def start(
@@ -98,12 +112,16 @@ class WatchStore:
             raise ValueError("One duty cannot combine profiles from different sources")
         primary = primary_profile.strip() if primary_profile else None
         if len(names) > 1 and primary is None:
-            raise ValueError("primary_profile is required when several profiles are used")
+            raise ValueError(
+                "primary_profile is required when several profiles are used"
+            )
         primary = primary or names[0]
         if primary not in names:
             raise ValueError("primary_profile must be included in profiles")
         for field_name, value in (
-            ("agent", agent), ("model", model), ("session_name", session_name)
+            ("agent", agent),
+            ("model", model),
+            ("session_name", session_name),
         ):
             if not value.strip():
                 raise ValueError(f"{field_name} cannot be empty")
@@ -189,10 +207,13 @@ class WatchStore:
             address, text, profile = None, message.text.strip(), None
         with self.inbox.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            if connection.execute(
-                "SELECT 1 FROM watch_deliveries WHERE chat_id=? AND message_id=? LIMIT 1",
-                (message.chat_id, message.message_id),
-            ).fetchone() is not None:
+            if (
+                connection.execute(
+                    "SELECT 1 FROM watch_deliveries WHERE chat_id=? AND message_id=? LIMIT 1",
+                    (message.chat_id, message.message_id),
+                ).fetchone()
+                is not None
+            ):
                 connection.commit()
                 return 0
             active = self._active_duties(connection)
@@ -241,8 +262,11 @@ class WatchStore:
                         duty_id,
                         text,
                         message.date,
-                        json.dumps(message.reply_context, ensure_ascii=False)
-                        if message.reply_context is not None else None,
+                        (
+                            json.dumps(message.reply_context, ensure_ascii=False)
+                            if message.reply_context is not None
+                            else None
+                        ),
                         state,
                         now(),
                     ),
@@ -260,8 +284,8 @@ class WatchStore:
                 connection.execute("BEGIN IMMEDIATE")
                 self._require_duty(connection, duty_id)
                 connection.execute(
-                    "UPDATE watch_duties SET heartbeat_at=? WHERE duty_id=?",
-                    (now(), duty_id),
+                    "UPDATE watch_duties SET heartbeat_at=?, last_poll_at=?, activity=CASE WHEN activity='waiting_user' THEN activity ELSE 'waiting' END, activity_at=? WHERE duty_id=?",
+                    (now(), now(), now(), duty_id),
                 )
                 row = connection.execute(
                     "SELECT * FROM watch_deliveries WHERE target_duty_id=? "
@@ -269,6 +293,10 @@ class WatchStore:
                     (duty_id,),
                 ).fetchone()
                 if row is not None:
+                    connection.execute(
+                        "UPDATE watch_duties SET activity='processing', activity_at=? WHERE duty_id=?",
+                        (now(), duty_id),
+                    )
                     connection.execute(
                         "UPDATE watch_deliveries SET state='claimed', claimed_at=? "
                         "WHERE delivery_id=?",
@@ -341,6 +369,10 @@ class WatchStore:
             if cursor.rowcount != 1:
                 connection.rollback()
                 raise ValueError("Delivery is not claimed by this duty")
+            connection.execute(
+                "UPDATE watch_duties SET activity='idle', activity_at=?, heartbeat_at=? WHERE duty_id=?",
+                (now(), now(), duty_id),
+            )
             connection.commit()
         return {"delivery_id": delivery_id, "state": state}
 
@@ -360,7 +392,85 @@ class WatchStore:
                 (duty_id,),
             ).fetchall()
         duty["deliveries"] = {row["state"]: row["count"] for row in counts}
+
+        def age(stamp):
+            if not stamp:
+                return None
+            return max(
+                0,
+                int(
+                    (
+                        datetime.now(timezone.utc) - datetime.fromisoformat(stamp)
+                    ).total_seconds()
+                ),
+            )
+
+        duty["poll_age_seconds"] = age(duty["last_poll_at"])
+        duty["monitor_age_seconds"] = age(duty["monitor_at"])
+        duty["activity_age_seconds"] = age(duty["activity_at"])
+        duty["polling_recently"] = (
+            duty["state"] == "active"
+            and duty["poll_age_seconds"] is not None
+            and duty["poll_age_seconds"] <= 90
+        )
+        duty["monitor_alive"] = (
+            duty["state"] == "active"
+            and duty["monitor_age_seconds"] is not None
+            and duty["monitor_age_seconds"] <= 30
+        )
+        duty["activity_stale"] = (
+            duty["activity_age_seconds"] is None or duty["activity_age_seconds"] > 120
+        )
+        duty["observed_state"] = (
+            "stopped"
+            if duty["state"] != "active"
+            else (
+                "registered"
+                if duty["activity"] == "registered"
+                else "unknown" if duty["activity_stale"] else duty["activity"]
+            )
+        )
         return duty
+
+    def activity(self, duty_id: str, state: str) -> dict:
+        if state not in {"processing", "waiting_user", "idle"}:
+            raise ValueError("activity must be processing, waiting_user, or idle")
+        with self.inbox.connect() as connection:
+            self._require_duty(connection, duty_id)
+            connection.execute(
+                "UPDATE watch_duties SET activity=?, activity_at=?, heartbeat_at=? WHERE duty_id=?",
+                (state, now(), now(), duty_id),
+            )
+            connection.commit()
+        return self.status(duty_id)
+
+    def monitor_probe(self, duty_id: str) -> dict:
+        """Observe pending ids without claiming or asserting that the AI is awake."""
+        with self.inbox.connect() as connection:
+            self._require_duty(connection, duty_id)
+            connection.execute(
+                "UPDATE watch_duties SET monitor_at=? WHERE duty_id=?", (now(), duty_id)
+            )
+            rows = connection.execute(
+                "SELECT delivery_id FROM watch_deliveries WHERE target_duty_id=? AND state='pending' ORDER BY created_at, delivery_id",
+                (duty_id,),
+            ).fetchall()
+            connection.commit()
+        return {"duty_id": duty_id, "pending": [row["delivery_id"] for row in rows]}
+
+    def source_status(self, settings: WatchConfig, source: str) -> list[dict]:
+        with self.inbox.connect() as connection:
+            rows = connection.execute(
+                "SELECT duty_id, profiles FROM watch_duties WHERE state='active'"
+            ).fetchall()
+        return [
+            self.status(row["duty_id"])
+            for row in rows
+            if any(
+                name in settings.profiles and settings.profiles[name].source == source
+                for name in json.loads(row["profiles"])
+            )
+        ]
 
     @staticmethod
     def _require_duty(connection, duty_id: str, *, active: bool = True):
@@ -389,7 +499,9 @@ class WatchStore:
         return None
 
     @staticmethod
-    def _address(settings: WatchConfig, raw_text: str) -> tuple[str | None, str, str | None]:
+    def _address(
+        settings: WatchConfig, raw_text: str
+    ) -> tuple[str | None, str, str | None]:
         text = raw_text.strip()
         matched = _ADDRESS.match(text)
         if matched is None:
