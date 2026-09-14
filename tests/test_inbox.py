@@ -58,22 +58,46 @@ def test_reply_context_round_trips_as_an_object(inbox: Inbox) -> None:
 def test_prepare_migrates_an_existing_database(tmp_path: Path) -> None:
     database = tmp_path / "old.db"
     with sqlite3.connect(database) as connection:
-        connection.executescript(SCHEMA.replace("    reply_context TEXT,\n", ""))
+        old_schema = SCHEMA
+        for line in (
+            "    reply_context TEXT,\n",
+            "    taken_at TEXT,\n",
+            "    archive_ref TEXT,\n",
+        ):
+            old_schema = old_schema.replace(line, "")
+        connection.executescript(old_schema)
+        connection.execute(
+            "INSERT INTO messages "
+            "(chat_id, message_id, chat_slug, date, state, captured_at) "
+            "VALUES (-100, 1, 'work', '2026-08-12T09:00:00+00:00', "
+            "'taken', '2026-08-12T09:00:00+00:00')"
+        )
 
     Inbox(database, tmp_path / "files").prepare()
 
     with sqlite3.connect(database) as connection:
-        columns = {
-            row[1] for row in connection.execute("PRAGMA table_info(messages)")
-        }
-    assert "reply_context" in columns
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(messages)")}
+        migrated = connection.execute(
+            "SELECT taken_at, archive_ref FROM messages WHERE message_id=1"
+        ).fetchone()
+    assert {"reply_context", "taken_at", "archive_ref"} <= columns
+    assert migrated[0] is not None
+    assert migrated[1] is None
 
 
 def test_fetch_filters_by_chat_and_range(inbox: Inbox) -> None:
     inbox.store(
         [
-            message(1, date="2026-08-12T08:00:00+00:00", epoch=as_epoch("2026-08-12T08:00:00+00:00")),
-            message(2, date="2026-08-12T12:00:00+00:00", epoch=as_epoch("2026-08-12T12:00:00+00:00")),
+            message(
+                1,
+                date="2026-08-12T08:00:00+00:00",
+                epoch=as_epoch("2026-08-12T08:00:00+00:00"),
+            ),
+            message(
+                2,
+                date="2026-08-12T12:00:00+00:00",
+                epoch=as_epoch("2026-08-12T12:00:00+00:00"),
+            ),
             message(3, chat_slug="other"),
         ]
     )
@@ -82,36 +106,61 @@ def test_fetch_filters_by_chat_and_range(inbox: Inbox) -> None:
 
 
 def test_fetch_and_status_accept_a_project_source_set(inbox: Inbox) -> None:
-    inbox.store([
-        message(1, chat_slug="project_a"),
-        message(2, chat_slug="project_a_notes"),
-        message(3, chat_slug="project_b"),
-    ])
+    inbox.store(
+        [
+            message(1, chat_slug="project_a"),
+            message(2, chat_slug="project_a_notes"),
+            message(3, chat_slug="project_b"),
+        ]
+    )
 
     found = inbox.fetch(("project_a", "project_a_notes"), None, None, 10, mark=False)
 
     assert [row["message_id"] for row in found] == [1, 2]
-    assert {row["chat_slug"] for row in inbox.status(("project_a", "project_a_notes"))["pending"]} == {
-        "project_a", "project_a_notes"
-    }
+    assert {
+        row["chat_slug"]
+        for row in inbox.status(("project_a", "project_a_notes"))["pending"]
+    } == {"project_a", "project_a_notes"}
 
 
 def test_until_on_a_bare_date_keeps_that_whole_day(inbox: Inbox) -> None:
     """A date without a time used to exclude the day it names."""
-    inbox.store([message(1, date="2026-08-12T23:30:00+00:00",
-                         epoch=as_epoch("2026-08-12T23:30:00+00:00"))])
+    inbox.store(
+        [
+            message(
+                1,
+                date="2026-08-12T23:30:00+00:00",
+                epoch=as_epoch("2026-08-12T23:30:00+00:00"),
+            )
+        ]
+    )
     assert len(inbox.fetch(None, None, "2026-08-12", 10)) == 1
 
 
 def test_range_respects_the_timezone_offset(inbox: Inbox) -> None:
-    inbox.store([message(1, date="2026-08-12T09:00:00+00:00",
-                         epoch=as_epoch("2026-08-12T09:00:00+00:00"))])
+    inbox.store(
+        [
+            message(
+                1,
+                date="2026-08-12T09:00:00+00:00",
+                epoch=as_epoch("2026-08-12T09:00:00+00:00"),
+            )
+        ]
+    )
     # 13:00+04:00 is 09:00 UTC: the window contains the message.
-    assert len(inbox.fetch(None, "2026-08-12T12:30:00+04:00",
-                           "2026-08-12T13:30:00+04:00", 10)) == 1
+    assert (
+        len(
+            inbox.fetch(
+                None, "2026-08-12T12:30:00+04:00", "2026-08-12T13:30:00+04:00", 10
+            )
+        )
+        == 1
+    )
     # The same clock reading in another zone does not.
-    assert inbox.fetch(None, "2026-08-12T12:30:00+09:00",
-                       "2026-08-12T13:30:00+09:00", 10) == []
+    assert (
+        inbox.fetch(None, "2026-08-12T12:30:00+09:00", "2026-08-12T13:30:00+09:00", 10)
+        == []
+    )
 
 
 def test_a_broken_range_is_refused_not_ignored(inbox: Inbox) -> None:
@@ -133,12 +182,62 @@ def test_fetch_reports_the_state_it_just_set(inbox: Inbox) -> None:
     assert inbox.fetch(None, None, None, 10)[0]["state"] == "taken"
 
 
+def test_fetch_records_taken_once_and_status_warns_after_24_hours(
+    inbox: Inbox,
+) -> None:
+    inbox.store([message(1)])
+    inbox.fetch(None, None, None, 10)
+    first = inbox.fetch(None, None, None, 10, include_taken=True)[0]["taken_at"]
+    assert first is not None
+    with inbox.connect() as connection:
+        connection.execute(
+            "UPDATE messages SET taken_at='2020-01-01T00:00:00+00:00' "
+            "WHERE message_id=1"
+        )
+        connection.commit()
+    inbox.fetch(None, None, None, 10, include_taken=True)
+    status = inbox.status()
+    assert status["taken_unarchived"] == {
+        "messages": 1,
+        "oldest_taken_at": "2020-01-01T00:00:00+00:00",
+        "stale_messages": 1,
+        "stale_after_hours": 24,
+        "attention_required": True,
+    }
+
+
+def test_done_requires_and_stores_archive_reference(inbox: Inbox) -> None:
+    inbox.store([message(1)])
+    inbox.fetch(None, None, None, 10)
+    for invalid in (None, "", "   ", "x" * 1001):
+        with pytest.raises(ValueError, match="archive_ref"):
+            inbox.mark_done([(-100, 1)], invalid)
+    assert inbox.mark_done([(-100, 1)], "  ctx:work/batch-42  ")[0] == 1
+    with inbox.connect() as connection:
+        row = connection.execute(
+            "SELECT state, archive_ref FROM messages WHERE message_id=1"
+        ).fetchone()
+    assert tuple(row) == ("done", "ctx:work/batch-42")
+
+
+def test_successful_export_starts_unarchived_clock(
+    inbox: Inbox, tmp_path: Path
+) -> None:
+    inbox.store([message(1)])
+    report = inbox.export_bundle(tmp_path / "bundle")
+    assert report["messages"] == 1
+    status = inbox.status()["taken_unarchived"]
+    assert status["messages"] == 1
+    assert status["oldest_taken_at"] is not None
+    assert not status["attention_required"]
+
+
 def test_mark_done_deletes_the_downloaded_copy(inbox: Inbox, tmp_path: Path) -> None:
     blob = tmp_path / "files" / "photo.jpg"
     blob.parent.mkdir(parents=True, exist_ok=True)
     blob.write_bytes(b"bytes")
     inbox.store([message(1, local_path=str(blob), size=5)])
-    marked, removed, kept = inbox.mark_done([(-100, 1)])
+    marked, removed, kept = inbox.mark_done([(-100, 1)], "ctx:work/batch-1")
     assert (marked, removed, kept) == (1, [str(blob)], [])
     assert not blob.exists()
 
@@ -150,7 +249,7 @@ def test_mark_done_refuses_to_delete_outside_the_files_dir(
     outsider = tmp_path / "elsewhere.txt"
     outsider.write_text("keep me", encoding="utf-8")
     inbox.store([message(1, local_path=str(outsider))])
-    marked, removed, kept = inbox.mark_done([(-100, 1)])
+    marked, removed, kept = inbox.mark_done([(-100, 1)], "ctx:work/batch-1")
     assert marked == 1
     assert removed == []
     assert kept == [str(outsider)]
@@ -159,8 +258,8 @@ def test_mark_done_refuses_to_delete_outside_the_files_dir(
 
 def test_mark_done_does_not_count_a_row_twice(inbox: Inbox) -> None:
     inbox.store([message(1)])
-    assert inbox.mark_done([(-100, 1)])[0] == 1
-    assert inbox.mark_done([(-100, 1)])[0] == 0
+    assert inbox.mark_done([(-100, 1)], "ctx:work/batch-1")[0] == 1
+    assert inbox.mark_done([(-100, 1)], "ctx:work/batch-1")[0] == 0
 
 
 def test_sweep_removes_files_no_row_points_at(inbox: Inbox, tmp_path: Path) -> None:
@@ -178,7 +277,7 @@ def test_sweep_removes_files_no_row_points_at(inbox: Inbox, tmp_path: Path) -> N
 
 def test_purge_only_removes_archived_rows_past_the_ttl(inbox: Inbox) -> None:
     inbox.store([message(1), message(2)])
-    inbox.mark_done([(-100, 1)])
+    inbox.mark_done([(-100, 1)], "ctx:work/batch-1")
     assert inbox.purge(ttl_days=7) == 0
     with inbox.connect() as connection:
         connection.execute(
@@ -242,8 +341,7 @@ def test_a_writing_process_and_a_reading_process_see_each_other(tmp_path: Path) 
         [
             sys.executable,
             "-c",
-            textwrap.dedent(
-                f"""
+            textwrap.dedent(f"""
                 import sys, time
                 sys.path.insert(0, {str(Path(__file__).parent.parent / 'src')!r})
                 from herald.inbox import CapturedMessage, Inbox
@@ -254,8 +352,7 @@ def test_a_writing_process_and_a_reading_process_see_each_other(tmp_path: Path) 
                         date="2026-08-12T09:00:00+00:00", epoch=1786000000 + index,
                         text="from the other process")])
                     time.sleep(0.005)
-                """
-            ),
+                """),
         ],
     )
     seen: set[int] = set()
@@ -278,10 +375,14 @@ def test_export_bundle_makes_paths_relative(inbox: Inbox, tmp_path: Path) -> Non
     inbox.store([message(5, local_path=str(blob), size=6, media_kind="document")])
     report = inbox.export_bundle(tmp_path / "bundle")
     assert report["files"] == 1
-    payload = json.loads((tmp_path / "bundle" / "inbox.json").read_text(encoding="utf-8"))
+    payload = json.loads(
+        (tmp_path / "bundle" / "inbox.json").read_text(encoding="utf-8")
+    )
     assert payload[0]["local_path"] == "files/work/5_report.csv"
     assert not Path(payload[0]["local_path"]).is_absolute()
-    assert (tmp_path / "bundle" / "files" / "work" / "5_report.csv").read_bytes() == b"col\n1\n"
+    assert (
+        tmp_path / "bundle" / "files" / "work" / "5_report.csv"
+    ).read_bytes() == b"col\n1\n"
 
 
 def test_export_bundle_keeps_structured_reply_context(
@@ -309,7 +410,9 @@ def test_export_bundle_notes_a_file_that_vanished(inbox: Inbox, tmp_path: Path) 
     report = inbox.export_bundle(tmp_path / "bundle")
     assert report["files"] == 0
     assert len(report["files_missing"]) == 1
-    payload = json.loads((tmp_path / "bundle" / "inbox.json").read_text(encoding="utf-8"))
+    payload = json.loads(
+        (tmp_path / "bundle" / "inbox.json").read_text(encoding="utf-8")
+    )
     assert payload[0]["local_path"] is None
     assert "not in the buffer" in payload[0]["media_note"]
 
@@ -336,11 +439,13 @@ def test_export_bundle_refuses_a_target_inside_the_files_dir(
 def test_purge_actually_shrinks_the_database(inbox: Inbox) -> None:
     """PRAGMA incremental_vacuum returns rows; without a fetch it never steps."""
     stamp = "2026-08-12T09:00:00+00:00"
-    inbox.store([
-        message(index, text="x" * 4000, date=stamp, epoch=as_epoch(stamp))
-        for index in range(1, 400)
-    ])
-    inbox.mark_done([(-100, index) for index in range(1, 400)])
+    inbox.store(
+        [
+            message(index, text="x" * 4000, date=stamp, epoch=as_epoch(stamp))
+            for index in range(1, 400)
+        ]
+    )
+    inbox.mark_done([(-100, index) for index in range(1, 400)], "ctx:work/batch-1")
     with inbox.connect() as connection:
         connection.execute("UPDATE messages SET done_at='2020-01-01T00:00:00+00:00'")
         connection.commit()
@@ -357,16 +462,14 @@ def test_two_readers_do_not_get_the_same_rows(tmp_path: Path) -> None:
     box = Inbox(database, tmp_path / "files")
     box.prepare()
     box.store([message(index) for index in range(1, 41)])
-    reader = textwrap.dedent(
-        f"""
+    reader = textwrap.dedent(f"""
         import json, sys
         sys.path.insert(0, {str(Path(__file__).parent.parent / 'src')!r})
         from herald.inbox import Inbox
         box = Inbox({str(database)!r}, {str(tmp_path / 'files')!r})
         rows = box.fetch(None, None, None, 100)
         print(json.dumps([row["message_id"] for row in rows]))
-        """
-    )
+        """)
     processes = [
         subprocess.Popen([sys.executable, "-c", reader], stdout=subprocess.PIPE)
         for _ in range(2)
@@ -378,7 +481,9 @@ def test_two_readers_do_not_get_the_same_rows(tmp_path: Path) -> None:
     assert sorted(handed) == list(range(1, 41))
 
 
-def test_export_refuses_only_on_rows_it_would_take(inbox: Inbox, tmp_path: Path) -> None:
+def test_export_refuses_only_on_rows_it_would_take(
+    inbox: Inbox, tmp_path: Path
+) -> None:
     """An already-taken row of another chat must not veto a single-chat export."""
     inbox.store([message(1, chat_slug="beta")])
     inbox.fetch(None, None, None, 10)
@@ -388,7 +493,9 @@ def test_export_refuses_only_on_rows_it_would_take(inbox: Inbox, tmp_path: Path)
     assert report["messages"] == 1
 
 
-def test_export_marks_taken_only_once_it_succeeded(inbox: Inbox, tmp_path: Path) -> None:
+def test_export_marks_taken_only_once_it_succeeded(
+    inbox: Inbox, tmp_path: Path
+) -> None:
     inbox.store([message(1)])
     inbox.export_bundle(tmp_path / "bundle")
     assert inbox.fetch(None, None, None, 10) == []
@@ -401,8 +508,7 @@ def test_two_exports_do_not_take_the_same_rows(tmp_path: Path) -> None:
     box = Inbox(database, tmp_path / "files")
     box.prepare()
     box.store([message(index) for index in range(1, 9)])
-    script = textwrap.dedent(
-        f"""
+    script = textwrap.dedent(f"""
         import json, sys
         sys.path.insert(0, {str(Path(__file__).parent.parent / 'src')!r})
         from herald.inbox import Inbox
@@ -414,8 +520,7 @@ def test_two_exports_do_not_take_the_same_rows(tmp_path: Path) -> None:
             print(json.dumps(report["messages"]))
         except ValueError:
             print("0")
-        """
-    )
+        """)
     processes = [
         subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE)
         for _ in range(2)
@@ -427,7 +532,9 @@ def test_two_exports_do_not_take_the_same_rows(tmp_path: Path) -> None:
     assert handed == 8
 
 
-def test_a_failed_export_returns_the_rows_to_the_pool(inbox: Inbox, tmp_path: Path) -> None:
+def test_a_failed_export_returns_the_rows_to_the_pool(
+    inbox: Inbox, tmp_path: Path
+) -> None:
     blob = tmp_path / "files" / "work" / "1_big.bin"
     blob.parent.mkdir(parents=True, exist_ok=True)
     blob.write_bytes(b"x" * 100)
@@ -450,7 +557,9 @@ def test_export_refuses_to_overwrite_a_bundle(inbox: Inbox, tmp_path: Path) -> N
     assert json.loads((tmp_path / "bundle" / "inbox.json").read_text(encoding="utf-8"))
 
 
-def test_export_can_rebuild_a_batch_handed_out_earlier(inbox: Inbox, tmp_path: Path) -> None:
+def test_export_can_rebuild_a_batch_handed_out_earlier(
+    inbox: Inbox, tmp_path: Path
+) -> None:
     """Without this an attachment of a taken row could never reach the archive."""
     inbox.store([message(1)])
     inbox.fetch(None, None, None, 10)
@@ -538,7 +647,7 @@ def test_mark_done_leaves_a_claimed_row_alone(inbox: Inbox, tmp_path: Path) -> N
     blob.write_bytes(b"x")
     inbox.store([message(1, local_path=str(blob))])
     inbox.claim(None, None, None, 10)
-    marked, removed, _ = inbox.mark_done([(-100, 1)])
+    marked, removed, _ = inbox.mark_done([(-100, 1)], "ctx:work/batch-1")
     assert (marked, removed) == (0, [])
     assert blob.exists()
 
@@ -563,7 +672,9 @@ def test_a_file_that_vanishes_mid_export_is_noted(inbox: Inbox, tmp_path: Path) 
     assert len(report["files_missing"]) == 1
 
 
-def test_a_multi_chat_refusal_keeps_a_taken_row_taken(inbox: Inbox, tmp_path: Path) -> None:
+def test_a_multi_chat_refusal_keeps_a_taken_row_taken(
+    inbox: Inbox, tmp_path: Path
+) -> None:
     inbox.store([message(1, chat_slug="alpha")])
     inbox.fetch(None, None, None, 10)
     inbox.store([message(2, chat_slug="beta")])

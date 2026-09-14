@@ -144,6 +144,9 @@ Capture is a temporary buffer, not a complete archive or a history reader.
 `inbox_status` and `inbox_fetch` require a project by default. Explicit source/all
 reads remain available: this is a filter for trusted local sessions, not an
 access-control boundary between users. Export is source-scoped.
+`inbox_fetch` is a read, not an archive import. Use `inbox_export`, import and
+verify the bundle, then call `inbox_done` with an opaque `archive_ref`. Status
+flags rows left taken but unconfirmed for more than 24 hours.
 
 For optional Watch, configure an allowed private source and profiles, start the same
 Capture daemon, and ask an open AI session to activate a profile. Send

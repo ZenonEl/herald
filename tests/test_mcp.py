@@ -98,6 +98,8 @@ async def test_mcp_exposes_write_tools() -> None:
     assert tools["inbox_status"].annotations.read_only_hint is True
     assert tools["inbox_fetch"].annotations.read_only_hint is False
     assert tools["inbox_done"].annotations.read_only_hint is False
+    assert "archive_ref" in tools["inbox_done"].input_schema["required"]
+    assert "opaque evidence" in tools["inbox_done"].description
     assert tools["inbox_fetch"].input_schema["properties"]["limit"]["default"] == 200
     assert "real author" in tools["inbox_fetch"].description
     assert tools["inbox_export"].annotations.read_only_hint is False

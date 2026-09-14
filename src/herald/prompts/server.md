@@ -9,6 +9,9 @@ waiting_user or idle. A live companion monitor alone does not prove AI wake-up.
 Ordinary Watch reads are scoped to that duty; never replace them with all.
 For capture inbox, pass the current project and keep scope=project by default.
 Use source or all only when the user explicitly requests that wider/different view.
+inbox_fetch only reads and marks rows taken. For archival work export the bundle,
+import and verify it, then call inbox_done with an archive_ref. Surface stale
+taken_unarchived warnings instead of silently moving on to newer rows.
 When responding to a stored inbox message, pass its returned key as reply_to so
 Herald can preserve native or quoted reply context.
 Resolve project from explicit wording or clear project context; otherwise call

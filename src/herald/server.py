@@ -510,7 +510,7 @@ def inbox_fetch(
 
 
 @mcp.tool(annotations=WRITE_ANNOTATIONS, description=load_prompt("tools/inbox_done"))
-def inbox_done(keys: list[dict]) -> dict:
+def inbox_done(keys: list[dict], archive_ref: str) -> dict:
 
     pairs: list[tuple[int, int]] = []
     for entry in keys:
@@ -518,8 +518,12 @@ def inbox_done(keys: list[dict]) -> dict:
             pairs.append((int(entry["chat_id"]), int(entry["message_id"])))
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError("Each key needs integer chat_id and message_id") from error
-    marked, removed, kept = _inbox().mark_done(pairs)
-    result = {"marked": marked, "files_removed": len(removed)}
+    marked, removed, kept = _inbox().mark_done(pairs, archive_ref)
+    result = {
+        "marked": marked,
+        "files_removed": len(removed),
+        "archive_ref": archive_ref.strip(),
+    }
     if kept:
         # Silence here would report an empty buffer while the bytes are still on
         # disk, and the row that pointed at them is gone.

@@ -76,6 +76,14 @@ to that project. Use `scope="source"` only for a named capture slug. Use
 `scope="all"` only when the user explicitly requests a cross-project inspection
 or archive operation.
 
+`inbox_fetch` is for reading and marks rows taken; it does not archive them. For
+durable capture use `inbox_export`, import the bundle, verify that import, then
+call `inbox_done(keys, archive_ref)` with the exact destination/batch reference.
+Treat material as recorded only when `inbox_done` returns that archive reference.
+Never mark a row done without one. If `inbox_status` reports
+`taken_unarchived.attention_required`, surface the stale count before fetching
+new rows and offer recovery with `include_taken=true`.
+
 When sending a response based on a stored inbox message, pass its returned
 `chat_id` and `message_id` through the send tool's `reply_to` field. Herald
 resolves the saved source and chooses native, external, or quoted fallback reply;

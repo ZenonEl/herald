@@ -3,6 +3,16 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.8.0-beta.6] — 2026-09-14
+
+### Changed
+
+- `inbox_done` now requires and stores an opaque `archive_ref`; Herald does not
+  parse it or depend on any archive implementation.
+- Inbox status separately reports taken-but-unconfirmed rows and raises an
+  attention flag after 24 hours. Existing taken rows start that clock at migration.
+- Inbox guidance distinguishes reading from the verified export/import/done flow.
+
 ## [0.8.0-beta.5] — 2026-09-14
 
 ### Fixed
