@@ -3,6 +3,85 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.8.0-beta.6] — 2026-09-14
+
+### Changed
+
+- `inbox_done` now requires and stores an opaque `archive_ref`; Herald does not
+  parse it or depend on any archive implementation.
+- Inbox status separately reports taken-but-unconfirmed rows and raises an
+  attention flag after 24 hours. Existing taken rows start that clock at migration.
+- Inbox guidance distinguishes reading from the verified export/import/done flow.
+
+## [0.8.0-beta.5] — 2026-09-14
+
+### Fixed
+
+- Separate Watch monitor options from duty IDs with `--`, so IDs starting with
+  a hyphen cannot be mistaken for command-line flags. Regression tests exercise
+  the actual command returned by `watch_start` with deterministic IDs.
+
+## [0.8.0-beta.4] — 2026-09-14
+
+### Added
+
+- Draft skill loads writing rules and reviews client-ready text before sending.
+- Configurable named batches: text, files, albums, arbitrary roles/tags and native
+  replies to earlier parts. Default clean copy with a separate provenance reply.
+- Structural preview, durable idempotent receipts and explicit partial-delivery
+  states. Uncertain sends are never automatically repeated.
+- Watch activity, actual poll time, companion monitor heartbeat and owner `/status`.
+- Companion monitor command for hosts with real wake-up support; explicit Claude
+  and Codex fallback instructions when that support is unavailable.
+
+### Changed
+
+- Shared writing defaults address the client directly. Existing config and single
+  sends remain compatible; inbox filtering is unchanged.
+- Shared body hygiene applies to new batches, including accidental protocol tags.
+
+## [0.8.0-beta.3] — 2026-09-08
+
+### Added
+
+- File albums and sequential batches via `send_files`, with preflight path checks
+  and explicit partial-delivery receipts; ambiguous sends are never auto-retried.
+- Packaged Markdown server/tool prompts, local overrides, and per-project styles.
+- `get_writing_rules` to read current writing preferences without restarting MCP.
+
+### Changed
+
+- English README and plugin descriptions, discoverability keywords, and contribution guide.
+- Send skill loads configured writing rules instead of imposing a duplicate style.
+
+## [0.8.0-beta.2] — 2026-09-04
+
+### Изменено
+
+- `send_text` стал основным режимом по умолчанию: свободная форма с Telegram HTML;
+- дефолтный текст рассчитан на руководителя без контекста проекта и готовится так,
+  чтобы его можно было переслать клиенту или быстро адаптировать без погружения;
+- `brief` для свободного текста задаёт плотность изложения, но не навязывает шаблон
+  или жёсткий лимит слов.
+
+## [0.8.0-beta.1] — 2026-09-02
+
+### Добавлено
+
+- beta-режим Watch для адресной связи с уже открытыми Claude/Codex-сессиями;
+- профили с несколькими тегами, явным владельцем, маршрутом ответа и реакциями;
+- изолированные `duty_id`: обычная сессия получает только адресованные ей
+  сообщения, а общий просмотр требует отдельного разрешения;
+- общий Telegram polling для Capture и Watch без второго конкурирующего демона;
+- ответы на сообщения через Telegram reply с цитатным fallback;
+- проектная область capture-inbox по умолчанию;
+- обычные и сворачиваемые Telegram-цитаты в `send_client_copy`, с правилами,
+  запрещающими прятать в них вопросы, блокеры и обязательные факты.
+
+### Исправлено
+
+- служебные строки Claude `<summary>` и `<invoke>` больше не попадают в Telegram.
+
 ## [0.7.0] — 2026-08-26
 
 ### Добавлено
@@ -100,6 +179,8 @@
 - локальный capture-буфер и экспорт для Mnemo;
 - двойное лицензирование AGPL-3.0-or-later и CC BY-SA 4.0.
 
+[0.8.0-beta.2]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.1...v0.8.0-beta.2
+[0.8.0-beta.1]: https://github.com/ZenonEl/herald/compare/v0.7.0...v0.8.0-beta.1
 [0.7.0]: https://github.com/ZenonEl/herald/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ZenonEl/herald/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/ZenonEl/herald/compare/v0.5.2...v0.5.3

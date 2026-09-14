@@ -1,82 +1,30 @@
 ---
 name: herald-send
-description: Send short client-ready project updates, completion notices, necessary client questions, files, or images through the Herald MCP server. Use when the user says to send, notify, report, attach, or post something via Herald; names a Herald preset such as brief, standard, or detailed; or invokes /herald-send or $herald-send. Defaults to self-contained brief copy scoped to the requested subject, without unrelated project issues, internal detail, or AI-style filler.
+description: Send Telegram messages, files, screenshot albums, and document packs from Claude Code or Codex through Herald. Use for explicit requests to send, notify, attach, or post via Herald, or requests naming brief, standard, or detailed presets. Loads the user's configured writing style; defaults to clear free-form client-ready text.
 ---
 
 # Herald Send
 
-Send only when the user explicitly requests an external message or an existing task has an explicit notification flag. Do not treat discussion or drafting as permission to send.
+Send only with an explicit user request or an existing explicit notification flag.
+Discussion or drafting alone is not permission to send.
 
-## Workflow
+1. Resolve the project from the request or clear context. Use `list_destinations` when uncertain; never guess between projects.
+2. Before composing, call `get_writing_rules(project)`. Its returned style is the source of truth for wording, density, audience, and structure. Follow explicit user instructions first. Do not replace a custom style with the examples in this skill.
+3. If the server is an older version without that tool, use brief, self-contained free-form Telegram HTML. Write for someone without project context who may forward the message to a client. Include necessary facts and actions, omit reasoning and unrelated work. Read [manager-style.md](references/manager-style.md) and [decision-examples.md](references/decision-examples.md) only for this fallback or when examples are needed.
+4. If the `humanizer` skill is available and compatible with the requested style, load it before sending. If absent or unavailable, continue.
+5. Apply the review in the sibling `herald-draft` skill before delivery. Call `batch_templates(project)` for the configured delivery layout, then `preview_batch` and `send_batch` with the same contents and one stable `request_id`. The built-in default sends clean client text and a separate provenance reply. Custom parts may have any roles/tags and reply to earlier named parts. Preview is structural validation, not fact verification. For an explicitly requested single signed message or an older server use `send_text`. Pass raw Telegram HTML tags, such as `<b>`, `<i>`, `<blockquote>`, `<blockquote expandable>`, and links. Escape literal text characters, not the formatting tags. `brief` is density, not a hard word budget.
+6. Use `send_client_copy` for requested named topic fields and `send_update` for requested structured internal reports. These tools have their own field validation; do not force ordinary messages into them.
+7. Use `send_file` for one requested attachment. Use `send_files` for a pack: `mode=album` for 2–10 photos or documents; `mode=separate` for 1–100 individual messages. Album `kind=auto` requires either all photos or all documents. Use `kind=document` for a mixed pack that should preserve original files. An album has one caption; separate sends repeat the caption. Use absolute paths under `files.allowed_roots`; never bypass a rejection.
+8. Telegram limits text to 4096 visible characters and captions to 1024 including the signature. Split oversized material deliberately; do not drop required facts.
+9. For a response to an inbox message, pass the returned stored key as `reply_to`. Do not invent coordinates. Albums support native/cross-chat reply attempts, with no automatic quote fallback; ordinary sends retain their fallback behavior.
+10. Inspect receipts before reporting success. For batches, check `complete`, `sent`, `unconfirmed`, and `not_attempted`. Never automatically resend unconfirmed files: Telegram may already have accepted them. Report confirmed message IDs and the remaining status.
 
-1. Resolve the destination from the named project or clear conversation context. Call `list_destinations` when uncertain. Never guess between projects.
-2. Set the scope to the exact subject requested by the user or notification flag. Treat it as a hard boundary. Do not widen a payment update into general project health, append marketplace work to a site update, or include another real issue merely because it is known.
-3. Use `brief` unless the user explicitly asks for another preset. `standard` is for requested context; `detailed` is only for an explicitly requested full report. Words such as "отчёт" or "апдейт" alone do not authorize a longer preset.
-4. Assume the recipient has not followed the project and does not know its terminology. Read [manager-style.md](references/manager-style.md) and [decision-examples.md](references/decision-examples.md). Keep only the minimum context needed to understand the subject, current result, and required response.
-5. If a skill named `humanizer` is available, load and apply it silently before calling Herald. Preserve facts and structured fields. If it is absent, unavailable, or fails to load, continue without blocking and use the reference checklist.
-6. Use `send_client_copy` by default when the body is meant to be copied or forwarded to a client. Create one topic for each real subject in the client message or requested project scope. Put facts, the proposal or next action, and at most one necessary question under that topic. Preserve all in-scope subjects; do not reduce a multi-subject client message to one question. Do not enforce a word or item budget. Remove reasoning and repetition, but keep every fact the client needs.
-7. Use `send_update` only for an explicitly internal status or management report. In `brief`, write one self-contained result sentence and no more than five short list items. Omit duplicated sections.
-8. Use `send_file` only when the user explicitly asks to send a local file or image. Use an absolute path, `kind=auto`, and a concise caption. If the path is rejected, explain that its directory must be added to `files.allowed_roots`; do not bypass the policy.
-9. Use `send_text` for exact user-provided copy or a genuinely unstructured message. For HTML, pass raw Telegram tags such as `<b>` and `<i>`; never escaped tags such as `&lt;b&gt;`.
-10. Report success only after Herald returns a receipt. Include the project and Telegram message ID in the confirmation. On failure, state that nothing was confirmed sent.
+Use `batch_status(request_id)` after an interruption. Reusing the same ID returns
+the saved attempt; it does not retry. Never use a new ID to bypass an uncertain
+delivery. All parts share one destination: role=internal does not make a part private.
+For replies to existing inbox messages, keep using the existing send tools and
+their `reply_to` keys; batch named replies currently refer only to earlier parts.
 
-## Object explanations
-
-Treat brevity as removal of reasoning, not removal of concrete information. When explaining a choice, process, feature, problem, or deliverable:
-
-1. Start with the exact object name. Do not introduce the available options in prose.
-2. Under the object, list every step, property, result, limit, price, or condition needed to understand it or make the requested decision.
-3. Use one fact per line. Do not merge distinct facts into an abstract summary.
-4. For several objects, repeat the same fields under each object so they can be compared directly.
-5. Do not add a conclusion that repeats the lists. Do not write that one option is easier, fuller, safer, or better without stating the concrete fact that makes it so.
-
-Example:
-
-```html
-<b>Корзина</b>
-<b>Шаги</b>
-1. Выбрать товары.
-2. Указать имя и телефон.
-3. Указать адрес доставки.
-4. Выбрать способ оплаты.
-
-<b>Что получает магазин</b>
-1. Состав заказа.
-2. Контакты покупателя.
-3. Адрес и способ доставки.
-```
-
-Do not write: `Предзаказ можно оформить через корзину или короткую заявку. Корзина дольше, зато собирает больше данных.` This hides the actual steps and data inside a comparison.
-
-## Structured fields
-
-- `summary`: the named subject and current result in one direct, self-contained sentence. Avoid pronouns whose referent exists only in the chat history.
-- `completed`: finished deliverables, not the work diary.
-- `blockers`: only facts that prevent the next action on the requested subject now.
-- `decisions_needed`: choices an owner must make.
-- `client_questions`: only questions that pass the gate below, one decision or missing fact per item.
-- `next_steps`: immediate actions after blockers or decisions are resolved.
-
-Omit empty sections. Use plain everyday language. Replace jargon, abbreviations, database or code terms, and internal feature names with what they mean for the client. If a term is unavoidable, explain its practical consequence in the same short sentence. Keep technical details only when they materially change a client decision, risk, cost, or deadline. Never include work chronology, reviews, tests, commits, tool names, model reasoning, self-justification, or implementation detail merely to prove that work happened. Do not duplicate a point across fields.
-
-## Question gate
-
-Include a client question only when every condition is true:
-
-1. It is directly about the requested subject.
-2. Its answer is not already available in the conversation, project data, config, or agreed decisions.
-3. The recipient is the person who can provide the answer or make the decision.
-4. Work on the next concrete action stops without the answer now.
-5. It asks for the current dependency, not a later dependency that matters only after another choice.
-
-If any condition fails, omit the question. Do not create questions to make the update look complete. Do not attach a separate project's task or a general backlog item to a convenient message.
-
-Before writing the question, build the dependency chain internally. Ask only about the earliest unresolved step. Do not expose this reasoning in the message.
-
-Write to the client, not about the client. Never say "заказчица должна", "заводить ли клиенту", "нужно решить" or another internal instruction in copy-ready text. Convert it to a direct request or question such as "Создать вам доступ для загрузки фотографий?"
-
-Before sending, delete greetings, conclusions, generic transitions, praise, hedging, and offers such as "если хотите" or "дайте знать". Avoid decorative headings, emoji, rhetorical summaries, vague comparisons, and phrases such as "важно отметить", "в рамках", "по итогу", "успешно выполнено", and "данный". Keep exact names, numbers, dates, deadlines, steps, conditions, and questions.
-
-## Attachments
-
-Send a file and an update as two messages only if the user clearly requested both. Otherwise send the file with a brief caption. Images supported by Telegram are sent as photos in `auto` mode; other files are sent as documents.
+The server supplies provenance. It identifies the sending session, not necessarily
+the author of the text. Do not repeat the signature in the body.
+Do not send a file and a separate update unless both were requested.

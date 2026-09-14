@@ -6,12 +6,25 @@ token_file = "~/.config/herald/telegram.token"
 allowed_roots = ["~/Herald/outbox"]
 max_bytes = 50000000
 
+# New batch workflow only; legacy single sends keep inline signatures.
+[delivery]
+default_template = "client_reply"  # or client_only / review_client
+# database = "~/.local/share/herald/outbox.db"
+# Custom named parts: see docs/batches.md. Keep the ledger outside Git.
+
+# Optional Markdown overrides. Relative paths resolve beside this config file.
+# Missing individual files fall back to the packaged defaults.
+[prompts]
+# directory = "prompts"
+
 [routes.example]
 platform = "telegram"
 chat_id = "-1001234567890"
 topic_id = 42
 
 [projects.example]
+# batch_template = "client_only"  # optional per-project override
+# style_file = "styles/example.md"  # replaces the global writing style for this project
 label = "Example project"
 description = "Use for messages about the example project."
 route = "example"
@@ -33,3 +46,23 @@ max_download_bytes = 20000000
 id = -1001234567890
 topic_id = 42             # optional: capture only this forum topic
 slug = "example"
+project = "example"       # lets project-scoped inbox reads avoid other projects
+
+# Watch beta: route private messages from one trusted owner to already-open AI
+# sessions. The same herald-capture process polls Telegram for Capture and Watch.
+[watch]
+enabled = false
+allow_inspect_all = false  # normal sessions can inspect only their own deliveries
+
+[watch.sources.owner_dm]
+chat_id = 123456789        # private chat with the bot
+user_id = 123456789        # only this Telegram account may issue commands
+
+[watch.profiles.example]
+tags = ["example", "101"] # send "#example text" or "#101 text" to the bot
+source = "owner_dm"
+project = "example"
+response_format = "brief"
+reply_context = "native_or_quote"
+# reply_route = "example" # optional; project route is used by default
+# instructions = "Reply with the result or the one question blocking it."

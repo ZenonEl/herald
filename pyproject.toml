@@ -1,7 +1,8 @@
 [project]
 name = "herald-mcp"
-version = "0.7.0"
-description = "A small MCP delivery service for AI assistants"
+version = "0.8.0b6"
+description = "Telegram messages, file albums, and a project inbox for Claude Code and Codex"
+keywords = ["mcp", "telegram", "claude-code", "codex", "albums", "notifications"]
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 authors = [{ name = "ZenonEl" }]
@@ -19,6 +20,7 @@ Issues = "https://github.com/ZenonEl/herald/issues"
 [project.scripts]
 herald = "herald.server:main"
 herald-capture = "herald.capture:main"
+herald-watch-monitor = "herald.watch_monitor:main"
 
 [dependency-groups]
 dev = [
