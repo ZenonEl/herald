@@ -126,23 +126,29 @@ def test_monitor_does_not_claim_other_duty_or_expose_text(watch):
     assert watch.status(one)["deliveries"] == {"pending": 1}
 
 
-def test_companion_cli_once_keeps_work_pending(watch, monkeypatch, capsys):
+@pytest.mark.parametrize("duty_id", ["normal-id", "-leading-dash", "--leading-dashes"])
+def test_companion_cli_once_keeps_work_pending(watch, monkeypatch, capsys, duty_id):
     import json
-    from herald import watch_monitor
+    from herald import server, watch_monitor
 
     cfg = config()
-    duty = watch.start(
-        cfg,
+    monkeypatch.setattr("herald.watch.secrets.token_urlsafe", lambda size: duty_id)
+    monkeypatch.setattr(server, "_watch", lambda: (cfg, watch))
+    registration = server.watch_start(
         profiles=["alpha"],
         primary_profile=None,
         agent="Test",
         model="Test",
-        session_name="test",
-    )["duty_id"]
+        session="test",
+    )
+    duty = registration["duty_id"]
     watch.ingest(cfg.watch, incoming(997, "#alpha Hello"))
     monkeypatch.setattr(watch_monitor, "load_config", lambda path: cfg)
     monkeypatch.setattr(watch_monitor, "Inbox", lambda *args: watch.inbox)
-    monkeypatch.setattr("sys.argv", ["herald-watch-monitor", duty, "--once"])
+    monkeypatch.setattr(
+        "sys.argv",
+        ["herald-watch-monitor", "--once", *registration["monitor_command"][3:]],
+    )
     watch_monitor.main()
     event = json.loads(capsys.readouterr().out)
     assert len(event["pending"]) == 1

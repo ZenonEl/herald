@@ -609,9 +609,10 @@ def watch_start(
         sys.executable,
         "-m",
         "herald.watch_monitor",
-        duty["duty_id"],
         "--config",
         str(config_path().resolve()),
+        "--",
+        duty["duty_id"],
     ]
     duty["activation"] = (
         "registered_only; poll or attach a verified host wake-up monitor"

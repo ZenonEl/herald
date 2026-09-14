@@ -23,6 +23,10 @@ unclaimed pending notifications every minute; that does not guarantee the host
 will resume the model. Keep one monitor per duty and retain its host task ID.
 Stop it when stopping duty; a stopped duty also makes it exit on its next probe.
 
+For a manual probe, use `herald-watch-monitor --once -- DUTY_ID`. Keep options
+before `--`: generated IDs may start with a hyphen. Prefer the exact
+`monitor_command` returned by `watch_start` for the correct Python and config.
+
 ## Claude Code and Codex
 
 Use a wake-up monitor only if it is actually available in the session's tools.

@@ -3,6 +3,14 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.8.0-beta.5] — 2026-09-14
+
+### Fixed
+
+- Separate Watch monitor options from duty IDs with `--`, so IDs starting with
+  a hyphen cannot be mistaken for command-line flags. Regression tests exercise
+  the actual command returned by `watch_start` with deterministic IDs.
+
 ## [0.8.0-beta.4] — 2026-09-14
 
 ### Added
