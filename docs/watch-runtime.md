@@ -61,6 +61,15 @@ claim unattended listening. The
 managed threads and turns, but controlling arbitrary existing terminals is outside
 this lightweight integration. Herald does not install such a controller.
 
+While Codex is actively working on a project, its default is cooperative polling
+instead of foreground waiting. It calls `watch_wait(timeout=0)` at natural work
+checkpoints, after tool/command batches and after blocking commands return. Empty
+polls produce no user-facing message. A Telegram command is handled and the
+interrupted project task resumes afterwards. A single long blocking operation can
+still delay delivery; when the host exposes a resumable process, poll Watch between
+process checks. Foreground waiting is reserved for explicitly requested pure duty.
+Polling stops when the turn ends or the session closes.
+
 ## `/status` in the bot DM
 
 Only configured Watch owners receive this response. It shows their active sessions:

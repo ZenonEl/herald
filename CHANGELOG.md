@@ -3,6 +3,14 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.8.0-beta.8] — 2026-09-21
+
+### Changed
+
+- Codex Watch now defaults to cooperative polling during project work:
+  non-blocking checks at natural checkpoints, command handling, then resuming the
+  interrupted task. Foreground waiting is reserved for explicit pure duty.
+
 ## [0.8.0-beta.7] — 2026-09-21
 
 ### Changed

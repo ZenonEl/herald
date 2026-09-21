@@ -109,6 +109,9 @@ async def test_mcp_exposes_write_tools() -> None:
     assert tools["watch_wait"].annotations.read_only_hint is False
     assert tools["watch_reply"].annotations.read_only_hint is False
     assert tools["watch_wait"].input_schema["properties"]["timeout"]["default"] == 30
+    assert "continue current project work" in tools["watch_start"].description
+    assert "watch_wait(timeout=0)" in tools["watch_start"].description
+    assert "foreground wait only" in tools["watch_start"].description
     assert (
         tools["inbox_fetch"].input_schema["properties"]["scope"]["default"] == "project"
     )

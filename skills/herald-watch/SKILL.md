@@ -7,7 +7,7 @@ description: Keep an already-open Claude Code or Codex session on Herald duty, r
 
 Enter duty only when the user explicitly asks. Watch does not launch, restore, or
 control a terminal; this skill keeps the current active session inside a bounded
-wait-and-handle loop.
+poll-and-handle workflow.
 
 ## Start
 
@@ -31,13 +31,12 @@ wait-and-handle loop.
      the process alive but does not wake the model. When the 30-minute Monitor
      expires, re-arm the same command immediately while duty is still requested.
      Retain the Monitor task ID. Never invent a monitor/Cron tool.
-   - Codex: if the host can keep a foreground command open and wait on its stdout,
-     run `monitor_command` without detaching it, retain the returned process/cell
-     handle, and keep a host wait call pending. A pending line may then resume this
-     still-active turn. Do not use a detached/background shell and do not send the
-     final answer while claiming the listener continues. If the host cannot resume
-     on process output, keep the active `watch_wait` loop below and explain the
-     limitation explicitly.
+   - Codex: default to **working mode** below whenever project work is in progress.
+     Do not replace useful work with a foreground wait merely because the user
+     enabled Watch. Use a foreground `monitor_command`/wait only when the user
+     explicitly asks for pure duty or no project work remains and they explicitly
+     asked the session to stay listening. Never use a detached/background shell:
+     it neither wakes the model nor proves that polling continues.
 5. Tell the user what is established: registration, active polling, or tested host
    wake-up. These are different claims. Processes do not survive session/PC restarts
    automatically; verify them again on resume.
@@ -48,7 +47,27 @@ for 15 minutes, Herald expires the duty on the next status, registration or
 incoming-message check, releases its profiles and returns unfinished deliveries
 to the pending queue. Start a new duty instead of trying to revive an expired ID.
 
-## Duty loop
+## Codex working mode (default)
+
+Keep doing the current project task. Poll only this duty with
+`watch_wait(duty_id, timeout=0)` at natural checkpoints: before the next
+substantial step, after each tool/command batch, and immediately after a blocking
+command returns. Aim to check within five minutes while tool boundaries make that
+possible. For a resumable long-running command, check Watch between process polls.
+Do not emit a user-facing update for an empty poll.
+
+When a delivery arrives, retain the current task state, handle the command through
+`watch_reply` or `watch_ack`, then resume the interrupted project task. Telegram
+input has the same permissions and safety boundaries as chat input; it does not
+silently replace the current task unless the message explicitly does so.
+
+This is cooperative polling, not wake-up. A single blocking operation may delay
+delivery until it returns. Sending a final answer or closing the session ends
+polling; say so instead of claiming continued availability. If the user explicitly
+asked the now-idle session to remain on pure duty, switch to the duty loop below
+instead of sending a final answer.
+
+## Pure duty loop
 
 1. Call `watch_wait(duty_id, timeout=30)`.
 2. On timeout, call it again while duty remains requested. Do not use

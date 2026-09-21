@@ -11,10 +11,13 @@ listening unless a real addressed test reaches this session.
 In Claude Code, Monitor is deferred: load it with
 ToolSearch("select:Monitor"), then give Monitor the returned command directly
 with stderr redirected to stdout and a 30-minute timeout. Do not use Bash
-run_in_background. Re-arm Monitor when its timeout fires. In Codex, do not claim
-background wake-up unless this host exposes an actual wake-up event tool. A Codex
-host with resumable foreground exec may retain that process handle and keep a wait
-call pending; ending the turn still ends listening.
+run_in_background. Re-arm Monitor when its timeout fires.
+
+In Codex, continue current project work by default. Poll cooperatively with
+watch_wait(timeout=0) at natural checkpoints and after blocking commands; do not
+report empty polls. Handle a delivery, then resume the interrupted task. Use a
+foreground wait only for explicitly requested pure duty. Ending the turn still
+ends polling.
 
 Duties expire after 15 minutes without a monitor probe, AI poll, activity update
 or acknowledgement. Expiry releases the profiles and unfinished deliveries.

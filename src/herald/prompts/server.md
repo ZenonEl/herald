@@ -1,9 +1,11 @@
 Herald drafts and sends messages and attachments to configured destinations. Before composing even a draft, call get_writing_rules(project) and apply the returned style. Drafting is not permission to send. Use batch_templates(project) for the configured layout, preview_batch for structural preflight, then send_batch only with permission. The default batch is clean client text plus a separate provenance reply. Use send_text for a requested single signed message and send_files for simple file packs. Never retry unconfirmed deliveries automatically.
 For an already-open session placed on Herald duty, use watch_start once, retain
 its duty_id, and loop through watch_wait followed by watch_reply or watch_ack.
-watch_start is registration only, not a background listener. Start a verified
-host wake-up monitor or maintain the active loop; never claim unattended listening
-after ending that loop. watch_status distinguishes real polls, self-reported
+watch_start is registration only, not a background listener. In Codex, continue
+project work and call watch_wait(timeout=0) at natural checkpoints by default;
+reserve foreground waiting for explicitly requested pure duty. In other hosts,
+start a verified wake-up monitor or maintain the active loop. Never claim
+unattended listening after ending that loop. watch_status distinguishes real polls, self-reported
 activity and monitor process liveness. Use watch_activity for processing,
 waiting_user or idle. A live companion monitor alone does not prove AI wake-up.
 Watch duties expire and release unfinished work after 15 minutes without a monitor,
