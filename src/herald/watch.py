@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import re
@@ -51,6 +51,7 @@ CREATE INDEX IF NOT EXISTS watch_deliveries_by_state
 """
 
 WatchScope = Literal["mine", "unaddressed", "all"]
+WATCH_LEASE_SECONDS = 15 * 60
 _ADDRESS = re.compile(r"^#([A-Za-z0-9_]+)(?:\s+|$)(.*)$", re.DOTALL)
 _HASHTAG = re.compile(r"(?<!\w)#([A-Za-z0-9_]+)")
 
@@ -130,6 +131,7 @@ class WatchStore:
         stamp = now()
         with self.inbox.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            self._expire_stale_connection(connection, stamp)
             active = connection.execute(
                 "SELECT duty_id, session_name, profiles FROM watch_duties "
                 "WHERE state='active'"
@@ -207,6 +209,7 @@ class WatchStore:
             address, text, profile = None, message.text.strip(), None
         with self.inbox.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            self._expire_stale_connection(connection, now())
             if (
                 connection.execute(
                     "SELECT 1 FROM watch_deliveries WHERE chat_id=? AND message_id=? LIMIT 1",
@@ -384,6 +387,10 @@ class WatchStore:
         return result
 
     def status(self, duty_id: str) -> dict:
+        with self.inbox.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._expire_stale_connection(connection, now())
+            connection.commit()
         duty = self.duty(duty_id)
         with self.inbox.connect() as connection:
             counts = connection.execute(
@@ -408,6 +415,17 @@ class WatchStore:
         duty["poll_age_seconds"] = age(duty["last_poll_at"])
         duty["monitor_age_seconds"] = age(duty["monitor_at"])
         duty["activity_age_seconds"] = age(duty["activity_at"])
+        duty["lease_age_seconds"] = min(
+            item
+            for item in (
+                age(duty["heartbeat_at"]),
+                duty["poll_age_seconds"],
+                duty["monitor_age_seconds"],
+                duty["activity_age_seconds"],
+            )
+            if item is not None
+        )
+        duty["lease_seconds"] = WATCH_LEASE_SECONDS
         duty["polling_recently"] = (
             duty["state"] == "active"
             and duty["poll_age_seconds"] is not None
@@ -422,7 +440,7 @@ class WatchStore:
             duty["activity_age_seconds"] is None or duty["activity_age_seconds"] > 120
         )
         duty["observed_state"] = (
-            "stopped"
+            duty["state"]
             if duty["state"] != "active"
             else (
                 "registered"
@@ -446,10 +464,12 @@ class WatchStore:
 
     def monitor_probe(self, duty_id: str) -> dict:
         """Observe pending ids without claiming or asserting that the AI is awake."""
+        stamp = now()
         with self.inbox.connect() as connection:
             self._require_duty(connection, duty_id)
             connection.execute(
-                "UPDATE watch_duties SET monitor_at=? WHERE duty_id=?", (now(), duty_id)
+                "UPDATE watch_duties SET monitor_at=?, heartbeat_at=? WHERE duty_id=?",
+                (stamp, stamp, duty_id),
             )
             rows = connection.execute(
                 "SELECT delivery_id FROM watch_deliveries WHERE target_duty_id=? AND state='pending' ORDER BY created_at, delivery_id",
@@ -460,9 +480,12 @@ class WatchStore:
 
     def source_status(self, settings: WatchConfig, source: str) -> list[dict]:
         with self.inbox.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._expire_stale_connection(connection, now())
             rows = connection.execute(
                 "SELECT duty_id, profiles FROM watch_duties WHERE state='active'"
             ).fetchall()
+            connection.commit()
         return [
             self.status(row["duty_id"])
             for row in rows
@@ -471,6 +494,31 @@ class WatchStore:
                 for name in json.loads(row["profiles"])
             )
         ]
+
+    def _expire_stale_connection(self, connection, stamp: str) -> list[str]:
+        cutoff = (
+            datetime.fromisoformat(stamp) - timedelta(seconds=WATCH_LEASE_SECONDS)
+        ).isoformat()
+        rows = connection.execute(
+            "SELECT duty_id FROM watch_duties WHERE state='active' "
+            "AND MAX(heartbeat_at, COALESCE(last_poll_at, heartbeat_at), "
+            "COALESCE(monitor_at, heartbeat_at), COALESCE(activity_at, heartbeat_at)) < ?",
+            (cutoff,),
+        ).fetchall()
+        for row in rows:
+            duty_id = row["duty_id"]
+            connection.execute(
+                "UPDATE watch_duties SET state='expired', stopped_at=? "
+                "WHERE duty_id=? AND state='active'",
+                (stamp, duty_id),
+            )
+            connection.execute(
+                "UPDATE watch_deliveries SET target_duty_id=NULL, state='pending', "
+                "claimed_at=NULL WHERE target_duty_id=? "
+                "AND state IN ('pending', 'claimed')",
+                (duty_id,),
+            )
+        return [row["duty_id"] for row in rows]
 
     @staticmethod
     def _require_duty(connection, duty_id: str, *, active: bool = True):

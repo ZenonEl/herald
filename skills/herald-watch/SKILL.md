@@ -24,15 +24,29 @@ wait-and-handle loop.
      pending IDs only; on each event call `watch_wait` to claim the actual command.
      Verify with `watch_status` and a real addressed test message before claiming
      wake-up delivery works. A background shell alone does not wake a model.
-   - Claude Code: use a wake-up monitor only if available in the current tools.
-     If using supported scheduled polling instead, retain the scheduled task ID;
-     it can run late while the session is busy. Never invent a monitor/Cron tool.
-   - Codex: use the same monitor path only when this host supports wake-up events.
-     Otherwise keep the active duty loop below. Do not finish the turn while
-     claiming unattended listening continues. Explain the limitation explicitly.
+   - Claude Code: first call `ToolSearch("select:Monitor")`; Monitor is deferred
+     and may be absent from the initial tool list. If it loads, pass the returned
+     `monitor_command` directly to Monitor with stderr redirected to stdout and
+     `timeout_ms=1800000`. Do not put it in Bash `run_in_background`: that keeps
+     the process alive but does not wake the model. When the 30-minute Monitor
+     expires, re-arm the same command immediately while duty is still requested.
+     Retain the Monitor task ID. Never invent a monitor/Cron tool.
+   - Codex: if the host can keep a foreground command open and wait on its stdout,
+     run `monitor_command` without detaching it, retain the returned process/cell
+     handle, and keep a host wait call pending. A pending line may then resume this
+     still-active turn. Do not use a detached/background shell and do not send the
+     final answer while claiming the listener continues. If the host cannot resume
+     on process output, keep the active `watch_wait` loop below and explain the
+     limitation explicitly.
 5. Tell the user what is established: registration, active polling, or tested host
    wake-up. These are different claims. Processes do not survive session/PC restarts
    automatically; verify them again on resume.
+
+An active duty is a renewable lease, not permanent ownership. A monitor probe,
+`watch_wait`, activity update or acknowledgement renews it. If none is observed
+for 15 minutes, Herald expires the duty on the next status, registration or
+incoming-message check, releases its profiles and returns unfinished deliveries
+to the pending queue. Start a new duty instead of trying to revive an expired ID.
 
 ## Duty loop
 

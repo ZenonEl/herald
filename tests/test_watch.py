@@ -100,6 +100,82 @@ def test_observed_activity_and_monitor_are_not_fake_polls(watch):
     assert watch.status(duty)["deliveries"] == {"done": 1}
 
 
+def test_stale_duty_expires_and_new_session_receives_unfinished_work(watch):
+    cfg = config()
+    old = watch.start(
+        cfg,
+        profiles=["alpha"],
+        primary_profile=None,
+        agent="Claude",
+        model="Opus",
+        session_name="old",
+    )["duty_id"]
+    watch.ingest(cfg.watch, incoming(991, "#alpha Claimed"))
+    watch.ingest(cfg.watch, incoming(992, "#alpha Pending"))
+    assert watch.wait(old, timeout=0)["text"] in {"Claimed", "Pending"}
+    with watch.inbox.connect() as connection:
+        connection.execute(
+            "UPDATE watch_duties SET heartbeat_at='2000-01-01T00:00:00+00:00', "
+            "last_poll_at='2000-01-01T00:00:00+00:00', "
+            "monitor_at='2000-01-01T00:00:00+00:00', "
+            "activity_at='2000-01-01T00:00:00+00:00' WHERE duty_id=?",
+            (old,),
+        )
+        connection.commit()
+
+    expired = watch.status(old)
+    assert expired["state"] == "expired"
+    assert expired["observed_state"] == "expired"
+
+    new = watch.start(
+        cfg,
+        profiles=["alpha"],
+        primary_profile=None,
+        agent="Claude",
+        model="Opus",
+        session_name="new",
+    )["duty_id"]
+
+    assert {watch.wait(new, timeout=0)["text"] for _ in range(2)} == {
+        "Claimed",
+        "Pending",
+    }
+
+
+def test_fresh_monitor_renews_lease_and_keeps_profile_owned(watch):
+    cfg = config()
+    duty = watch.start(
+        cfg,
+        profiles=["alpha"],
+        primary_profile=None,
+        agent="Claude",
+        model="Opus",
+        session_name="live",
+    )["duty_id"]
+    with watch.inbox.connect() as connection:
+        connection.execute(
+            "UPDATE watch_duties SET heartbeat_at='2000-01-01T00:00:00+00:00', "
+            "last_poll_at='2000-01-01T00:00:00+00:00', "
+            "monitor_at='2000-01-01T00:00:00+00:00', "
+            "activity_at='2000-01-01T00:00:00+00:00' WHERE duty_id=?",
+            (duty,),
+        )
+        connection.commit()
+    watch.monitor_probe(duty)
+
+    with pytest.raises(ValueError, match="already active"):
+        watch.start(
+            cfg,
+            profiles=["alpha"],
+            primary_profile=None,
+            agent="Claude",
+            model="Opus",
+            session_name="second",
+        )
+    assert watch.status(duty)["monitor_alive"]
+    assert watch.status(duty)["lease_age_seconds"] <= 1
+
+
 def test_monitor_does_not_claim_other_duty_or_expose_text(watch):
     cfg = config()
     one = watch.start(

@@ -39,6 +39,12 @@ READ_ANNOTATIONS = ToolAnnotations(
     idempotentHint=True,
     openWorldHint=False,
 )
+MAINTENANCE_ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
+)
 
 
 def build_service(config: Config | None = None) -> Herald:
@@ -744,7 +750,9 @@ def watch_ack(
     return result
 
 
-@mcp.tool(annotations=READ_ANNOTATIONS, description=load_prompt("tools/watch_status"))
+@mcp.tool(
+    annotations=MAINTENANCE_ANNOTATIONS, description=load_prompt("tools/watch_status")
+)
 def watch_status(duty_id: str) -> dict:
 
     _, watch = _watch()

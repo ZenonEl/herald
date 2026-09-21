@@ -3,6 +3,19 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.8.0-beta.7] — 2026-09-21
+
+### Changed
+
+- Watch duties are renewable 15-minute leases. Stale duties expire on status,
+  registration or incoming-message checks, release their profiles and return
+  unfinished deliveries to the pending queue.
+- Claude Code guidance now loads the deferred Monitor tool explicitly, attaches
+  `monitor_command` directly, re-arms the 30-minute monitor and requires a live
+  addressed test before claiming wake-up works.
+- Codex guidance distinguishes unsupported revival of a completed CLI turn from
+  the supported host-dependent pattern of keeping a foreground monitor wait active.
+
 ## [0.8.0-beta.6] — 2026-09-14
 
 ### Changed

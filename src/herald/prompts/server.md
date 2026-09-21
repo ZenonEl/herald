@@ -6,6 +6,8 @@ host wake-up monitor or maintain the active loop; never claim unattended listeni
 after ending that loop. watch_status distinguishes real polls, self-reported
 activity and monitor process liveness. Use watch_activity for processing,
 waiting_user or idle. A live companion monitor alone does not prove AI wake-up.
+Watch duties expire and release unfinished work after 15 minutes without a monitor,
+poll or activity signal; never treat registration as permanent profile ownership.
 Ordinary Watch reads are scoped to that duty; never replace them with all.
 For capture inbox, pass the current project and keep scope=project by default.
 Use source or all only when the user explicitly requests that wider/different view.

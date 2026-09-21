@@ -42,7 +42,8 @@ combine text, files, albums and provenance. See [drafts and batches](docs/batche
 
 Watch exposes real poll time, reported activity and monitor liveness through
 `/status` in the owner's bot DM. Registration alone does not mean the AI listens;
-see [Watch runtime](docs/watch-runtime.md) for Claude/Codex wake-up limitations.
+inactive duties expire after 15 minutes and release their profiles. See
+[Watch runtime](docs/watch-runtime.md) for Claude/Codex wake-up limitations.
 
 ## Install
 

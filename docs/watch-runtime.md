@@ -23,18 +23,39 @@ unclaimed pending notifications every minute; that does not guarantee the host
 will resume the model. Keep one monitor per duty and retain its host task ID.
 Stop it when stopping duty; a stopped duty also makes it exit on its next probe.
 
+Duties are renewable leases. A monitor probe, AI poll, activity update or
+acknowledgement renews the lease. After 15 minutes without any of those signals,
+the next status check, registration or incoming message expires the duty,
+releases its profiles and returns unfinished deliveries to the pending queue.
+This removes registrations left behind by closed terminals without a separate
+cleanup daemon.
+
 For a manual probe, use `herald-watch-monitor --once -- DUTY_ID`. Keep options
 before `--`: generated IDs may start with a hyphen. Prefer the exact
 `monitor_command` returned by `watch_start` for the correct Python and config.
 
 ## Claude Code and Codex
 
-Use a wake-up monitor only if it is actually available in the session's tools.
-Claude Code scheduled polling is another host-dependent option; it can run late
-while busy. Verify tasks after restarting. See
-[Claude scheduled tasks](https://code.claude.com/docs/en/scheduled-tasks).
+In Claude Code, Monitor is a deferred tool: first search for
+`ToolSearch("select:Monitor")`. If it is available, pass `monitor_command`
+directly to Monitor with stderr redirected to stdout and a 30-minute timeout.
+Do not wrap it in a background Bash task. Re-arm it as soon as the host reports
+the timeout, and verify the setup with `watch_status` plus a real addressed
+Telegram message before claiming the session is reachable.
 
-Codex hosts differ. Without a wake-up tool, use the active loop and say so; do not
+Codex CLI has no documented inbound event hook that resumes the current model turn.
+Its external [`notify`](https://developers.openai.com/codex/notifications) command
+runs after Codex emits supported events; it does not turn arbitrary process output
+into a new user turn. [Scheduled tasks](https://developers.openai.com/codex/automations)
+are managed in ChatGPT web or the desktop app, not Codex CLI, and are separate runs
+rather than an instant wake-up of this terminal.
+
+Some Codex hosts can keep a foreground command open and wait on its stdout. In
+that case, run `monitor_command` without detaching it, retain the process/cell
+handle and keep a host wait call pending. A pending event can resume that
+still-active turn. This is not revival after a final answer: ending the turn or
+closing the session ends the listener. Verify it with a real addressed message.
+Without that host behavior, use the active `watch_wait` loop and say so; do not
 claim unattended listening. The
 [Codex app-server](https://developers.openai.com/codex/app-server) has APIs for
 managed threads and turns, but controlling arbitrary existing terminals is outside

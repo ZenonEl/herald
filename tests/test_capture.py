@@ -303,6 +303,7 @@ def test_watch_help_replies_to_allowed_owner_without_creating_delivery(
         assert "<code>#101</code>, <code>#alpha</code>" in help_message.text
         assert "<code>#all Дайте краткий статус</code>" in help_message.text
         assert "Покажи inbox проекта" in help_message.text
+        assert "профиль освобождается автоматически" in help_message.text
     else:
         assert "Активных регистраций нет" in help_message.text
     assert len(help_message.text) <= 3_800
