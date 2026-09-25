@@ -80,6 +80,37 @@ def test_existing_message_can_anchor_one_named_batch_part(batch):
     assert second["reply_parameters"]["message_id"] == 1
 
 
+def test_rejected_batch_reply_uses_quote_fallback_without_detaching_signature(batch):
+    service, calls, _ = batch
+    adapter = service.service._adapters["tg"]
+    attempts = 0
+
+    def handler(request):
+        nonlocal attempts
+        attempts += 1
+        calls.append(request)
+        if attempts == 1:
+            return httpx.Response(400, json={"ok": False, "description": "gone"})
+        return httpx.Response(
+            200, json={"ok": True, "result": {"message_id": 100 + attempts}}
+        )
+
+    adapter._client = httpx.Client(transport=httpx.MockTransport(handler))
+    result = service.send(
+        "fallback-reply",
+        **args(
+            contents={"answer": {"text": "Ready"}},
+            reply_to=ReplyTarget("-200", 42, quote="Original"),
+        ),
+    )
+
+    assert result["complete"]
+    fallback = json.loads(calls[1].content)["text"]
+    assert "Ready" in fallback and "Original" in fallback
+    signature = json.loads(calls[2].content)
+    assert signature["reply_parameters"]["message_id"] == 102
+
+
 def test_external_reply_part_must_exist_and_be_a_root(batch):
     service, calls, _ = batch
     target = ReplyTarget("-200", 42)
@@ -133,7 +164,7 @@ def test_partial_is_not_automatically_retried(batch):
     def fail(*args):
         raise RuntimeError("private error must not appear in receipt")
 
-    adapter.send_linked = fail
+    adapter.send_reply = fail
     data = args(contents={"answer": {"text": "Ready"}})
     result = service.send("partial", **data)
     assert not result["complete"]

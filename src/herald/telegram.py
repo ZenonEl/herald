@@ -100,6 +100,41 @@ class TelegramAdapter:
         caption: FormattedText,
         target: ReplyTarget | None = None,
     ) -> list[int]:
+        _, body = self._send_album(destination, attachments, caption, target)
+        return _album_message_ids(body, len(attachments))
+
+    def send_album_reply(
+        self,
+        destination: Destination,
+        attachments: list[Attachment],
+        caption: FormattedText,
+        target: ReplyTarget,
+        fallback: FormattedText,
+    ) -> tuple[list[int], ReplyMode]:
+        _, body = self._send_album(destination, attachments, caption, target)
+        if body.get("ok"):
+            mode: ReplyMode = (
+                "native"
+                if target.chat_id == destination.chat_id
+                and target.topic_id == destination.topic_id
+                else "external"
+            )
+            return _album_message_ids(body, len(attachments)), mode
+        _, fallback_body = self._send_album(
+            destination, attachments, fallback, target=None
+        )
+        return (
+            _album_message_ids(fallback_body, len(attachments)),
+            "quoted_fallback",
+        )
+
+    def _send_album(
+        self,
+        destination: Destination,
+        attachments: list[Attachment],
+        caption: FormattedText,
+        target: ReplyTarget | None,
+    ) -> tuple[httpx.Response, dict]:
         if not 2 <= len(attachments) <= 10:
             raise ValueError("An album requires 2–10 files")
         self.validate_files(attachments, caption, album=True)
@@ -142,17 +177,7 @@ class TelegramAdapter:
             ) from error
         except ValueError as error:
             raise TelegramError("Album delivery unconfirmed: invalid JSON") from error
-        if not body.get("ok"):
-            raise TelegramError("Telegram rejected album; no automatic retry")
-        try:
-            ids = [int(item["message_id"]) for item in body["result"]]
-            if len(ids) != len(attachments):
-                raise ValueError("Unexpected receipt count")
-            return ids
-        except (KeyError, TypeError, ValueError) as error:
-            raise TelegramError(
-                "Album delivery unconfirmed: invalid receipt"
-            ) from error
+        return response, body
 
     def __init__(
         self,
@@ -516,3 +541,16 @@ def _message_id(response: httpx.Response, body: dict) -> int:
         return int(body["result"]["message_id"])
     except (KeyError, TypeError, ValueError) as error:
         raise TelegramError("Telegram response has no valid message_id") from error
+
+
+def _album_message_ids(body: dict, expected: int) -> list[int]:
+    if not body.get("ok"):
+        description = body.get("description", "unknown Telegram error")
+        raise TelegramError(f"Telegram rejected the album: {description}")
+    try:
+        ids = [int(item["message_id"]) for item in body["result"]]
+        if len(ids) != expected:
+            raise ValueError("Unexpected receipt count")
+        return ids
+    except (KeyError, TypeError, ValueError) as error:
+        raise TelegramError("Album delivery unconfirmed: invalid receipt") from error

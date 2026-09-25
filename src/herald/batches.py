@@ -15,7 +15,7 @@ import sqlite3
 from herald.config import ConfigError
 from herald.domain import Attachment, BatchPart, FormattedText, Message, ReplyTarget
 from herald.inbox import now
-from herald.service import Herald, render_body, render_message
+from herald.service import Herald, render_body, render_message, render_reply_fallback
 
 BUILTIN_TEMPLATES = {
     "client_reply": [
@@ -320,9 +320,13 @@ class Batches:
                 content = FormattedText(part["text"], part["format"])
                 if part["kind"] in {"text", "provenance"}:
                     if target:
-                        # No fallback: metadata must stay a reply, never a detached annotation.
                         ids = [
-                            adapter.send_linked(routing.destination, content, target)
+                            adapter.send_reply(
+                                routing.destination,
+                                content,
+                                target,
+                                render_reply_fallback(content, target),
+                            )[0]
                         ]
                     else:
                         ids = [adapter.send(routing.destination, content)]
@@ -361,20 +365,33 @@ class Batches:
                             )
                         )
                         if len(group) > 1:
-                            group_ids = adapter.send_album(
-                                routing.destination,
-                                group,
-                                group_content,
-                                group_target,
-                            )
+                            if group_target:
+                                group_ids, _ = adapter.send_album_reply(
+                                    routing.destination,
+                                    group,
+                                    group_content,
+                                    group_target,
+                                    render_reply_fallback(
+                                        group_content, group_target
+                                    ),
+                                )
+                            else:
+                                group_ids = adapter.send_album(
+                                    routing.destination,
+                                    group,
+                                    group_content,
+                                )
                         elif group_target:
                             group_ids = [
-                                adapter.send_file_linked(
+                                adapter.send_file_reply(
                                     routing.destination,
                                     group[0],
                                     group_content,
                                     group_target,
-                                )
+                                    render_reply_fallback(
+                                        group_content, group_target
+                                    ),
+                                )[0]
                             ]
                         else:
                             group_ids = [

@@ -153,18 +153,31 @@ class Herald:
             )
             try:
                 if len(group) > 1:
-                    ids = adapter.send_album(
-                        route_config.destination, group, content, target
-                    )
+                    if target is None:
+                        ids = adapter.send_album(
+                            route_config.destination, group, content
+                        )
+                    else:
+                        ids, _ = adapter.send_album_reply(
+                            route_config.destination,
+                            group,
+                            content,
+                            target,
+                            render_reply_fallback(content, target),
+                        )
                 elif target is None:
                     ids = [
                         adapter.send_file(route_config.destination, group[0], content)
                     ]
                 elif index > 0:
                     ids = [
-                        adapter.send_file_linked(
-                            route_config.destination, group[0], content, target
-                        )
+                        adapter.send_file_reply(
+                            route_config.destination,
+                            group[0],
+                            content,
+                            target,
+                            render_reply_fallback(content, target),
+                        )[0]
                     ]
                 else:
                     message_id, _ = adapter.send_file_reply(

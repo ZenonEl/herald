@@ -115,6 +115,15 @@ class Messenger(Protocol):
         target: ReplyTarget | None = None,
     ) -> list[int]: ...
 
+    def send_album_reply(
+        self,
+        destination: Destination,
+        attachments: list[Attachment],
+        caption: FormattedText,
+        target: ReplyTarget,
+        fallback: FormattedText,
+    ) -> tuple[list[int], ReplyMode]: ...
+
     def validate_files(
         self,
         attachments: list[Attachment],
