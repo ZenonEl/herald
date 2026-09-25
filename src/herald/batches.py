@@ -7,6 +7,7 @@ never automatically retried, including when the same request id is used again.
 from dataclasses import asdict
 from hashlib import sha256
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import re
@@ -249,9 +250,48 @@ class Batches:
             raise ValueError("Unknown batch request_id")
         return json.loads(row["result"])
 
+    def cleanup(self, older_than_days: int | None = None) -> dict:
+        days = (
+            self.config.delivery.retention_days
+            if older_than_days is None
+            else older_than_days
+        )
+        if not isinstance(days, int) or isinstance(days, bool) or days <= 0:
+            raise ValueError("older_than_days must be a positive integer")
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        removed = 0
+        retained_incomplete = 0
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT request_id, result FROM batches"
+            ).fetchall()
+            for row in rows:
+                try:
+                    result = json.loads(row["result"])
+                    created = datetime.fromisoformat(result["created_at"])
+                    if created.tzinfo is None:
+                        created = created.replace(tzinfo=timezone.utc)
+                except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                    continue
+                if created >= cutoff:
+                    continue
+                if not result.get("complete"):
+                    retained_incomplete += 1
+                    continue
+                connection.execute(
+                    "DELETE FROM batches WHERE request_id=?", (row["request_id"],)
+                )
+                removed += 1
+        return {
+            "removed": removed,
+            "retained_incomplete": retained_incomplete,
+            "older_than_days": days,
+        }
+
     def send(self, request_id: str, **kwargs) -> dict:
         if not _ID.fullmatch(request_id):
             raise ValueError("request_id must be an ASCII name of 1–100 characters")
+        self.cleanup()
         plan = self.preview(**kwargs)
         encoded = json.dumps(plan, sort_keys=True, ensure_ascii=False)
         digest = sha256(encoded.encode()).hexdigest()

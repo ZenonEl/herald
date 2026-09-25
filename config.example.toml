@@ -9,6 +9,7 @@ max_bytes = 50000000
 # New batch workflow only; legacy single sends keep inline signatures.
 [delivery]
 default_template = "client_reply"  # or client_only / review_client
+retention_days = 30                 # completed local delivery receipts
 # database = "~/.local/share/herald/outbox.db"
 # Custom named parts: see docs/batches.md. Keep the ledger outside Git.
 

@@ -275,3 +275,28 @@ def test_concurrent_request_id_cannot_double_send(batch):
             release.set()
         assert first.result()["complete"]
     assert len(calls) == 2
+
+
+def test_cleanup_removes_only_completed_old_batches(batch):
+    service, _, _ = batch
+    service.send("complete-old", **args(contents={"answer": {"text": "Ready"}}))
+    service.send("complete-new", **args(contents={"answer": {"text": "Ready"}}))
+    with service._connect() as connection:
+        for request_id in ("complete-old", "incomplete-old"):
+            result = service.status("complete-old")
+            result["request_id"] = request_id
+            result["created_at"] = "2000-01-01T00:00:00+00:00"
+            if request_id == "incomplete-old":
+                result["complete"] = False
+            connection.execute(
+                "INSERT OR REPLACE INTO batches VALUES (?, ?, ?, ?)",
+                (request_id, request_id, "{}", json.dumps(result)),
+            )
+
+    report = service.cleanup(older_than_days=30)
+
+    assert report == {"removed": 1, "retained_incomplete": 1, "older_than_days": 30}
+    with pytest.raises(ValueError, match="Unknown"):
+        service.status("complete-old")
+    assert service.status("complete-new")["complete"]
+    assert not service.status("incomplete-old")["complete"]

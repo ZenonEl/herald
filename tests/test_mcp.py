@@ -26,6 +26,7 @@ async def test_mcp_exposes_write_tools() -> None:
         "preview_batch",
         "send_batch",
         "batch_status",
+        "batch_cleanup",
         "watch_activity",
         "send_files",
         "get_writing_rules",
@@ -51,6 +52,7 @@ async def test_mcp_exposes_write_tools() -> None:
         "watch_stop",
     }
     assert tools["list_destinations"].annotations.read_only_hint is True
+    assert tools["batch_cleanup"].annotations.idempotent_hint is True
     assert tools["send_text"].annotations.read_only_hint is False
     assert tools["notify_completion"].annotations.read_only_hint is False
     assert tools["send_update"].annotations.read_only_hint is False

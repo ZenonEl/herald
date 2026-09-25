@@ -40,6 +40,7 @@ class DeliveryConfig:
     database: Path = Path("~/.local/share/herald/outbox.db").expanduser()
     default_template: str = "client_reply"
     templates: Mapping[str, Any] = field(default_factory=dict)
+    retention_days: int = 30
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,6 +222,11 @@ def load_config(path: Path | None = None) -> Config:
             )
             or "client_reply",
             templates=templates,
+            retention_days=_positive_int(
+                delivery_raw.get("retention_days"),
+                "delivery.retention_days",
+                30,
+            ),
         )
     except KeyError as error:
         raise ConfigError(f"Missing config key: {error.args[0]}") from error

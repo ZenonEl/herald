@@ -51,6 +51,7 @@ def test_optional_delivery_config_and_project_template(tmp_path):
     )
     config = load_config(path)
     assert config.delivery.default_template == "client_reply"
+    assert config.delivery.retention_days == 30
     assert config.projects["example"].batch_template == "client_only"
     assert config.delivery.templates["custom"] == [{"id": "answer", "role": "client"}]
 

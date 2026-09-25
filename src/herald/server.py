@@ -173,6 +173,13 @@ def batch_status(request_id: str) -> dict:
 
 
 @mcp.tool(
+    annotations=MAINTENANCE_ANNOTATIONS, description=load_prompt("tools/batch_cleanup")
+)
+def batch_cleanup(older_than_days: int | None = None) -> dict:
+    return Batches(build_service()).cleanup(older_than_days)
+
+
+@mcp.tool(
     annotations=READ_ANNOTATIONS, description=load_prompt("tools/list_destinations")
 )
 def list_destinations() -> list[dict[str, str | int | None]]:
