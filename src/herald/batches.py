@@ -100,6 +100,8 @@ class Batches:
         template=None,
         contents=None,
         route=None,
+        reply_to: ReplyTarget | None = None,
+        reply_part: str | None = None,
     ):
         project_config, route_name, routing, adapter = self.service._resolve(
             project, route
@@ -177,6 +179,7 @@ class Batches:
             data.update(text=text, format=fmt, paths=paths)
             prepared.append(data)
             seen.add(part.id)
+        source_part = self._reply_part(items, reply_to, reply_part)
         return {
             "project": project,
             "route": route_name,
@@ -186,10 +189,40 @@ class Batches:
             "agent": agent,
             "model": model,
             "subject": subject,
+            "reply_to": asdict(reply_to) if reply_to is not None else None,
+            "reply_part": source_part,
             "parts": prepared,
             "validation": "structure_only",
             "facts_verified": False,
         }
+
+    @staticmethod
+    def _reply_part(items, reply_to, requested):
+        if reply_to is None:
+            if requested is not None:
+                raise ValueError("reply_part requires reply_to")
+            return None
+        by_id = {part.id: part for part in items}
+        if requested is None:
+            roots = [
+                part
+                for part in items
+                if part.reply_to is None and part.kind != "provenance"
+            ]
+            client_roots = [part for part in roots if part.role == "client"]
+            candidates = client_roots if len(client_roots) == 1 else roots
+            if len(candidates) != 1:
+                raise ValueError(
+                    "reply_part is required when a batch has several root parts"
+                )
+            requested = candidates[0].id
+        if requested not in by_id:
+            raise ValueError("reply_part must name a batch part")
+        if by_id[requested].reply_to is not None:
+            raise ValueError("reply_part already replies to an earlier batch part")
+        if by_id[requested].kind == "provenance":
+            raise ValueError("reply_part cannot be provenance")
+        return requested
 
     @contextmanager
     def _connect(self):
@@ -235,6 +268,7 @@ class Batches:
             "agent": plan["agent"],
             "model": plan["model"],
             "subject": plan["subject"],
+            "reply_part": plan["reply_part"],
             "parts": [],
         }
         with self._connect() as connection:
@@ -264,6 +298,9 @@ class Batches:
             )
         _, _, routing, adapter = self.service._resolve(plan["project"], plan["route"])
         sent = {}
+        source_target = (
+            ReplyTarget(**plan["reply_to"]) if plan["reply_to"] is not None else None
+        )
         for part, receipt in zip(plan["parts"], result["parts"]):
             receipt["state"] = "unconfirmed"
             self._save(result)
@@ -275,6 +312,8 @@ class Batches:
                         sent[part["reply_to"]][0],
                         routing.destination.topic_id,
                     )
+                elif part["id"] == plan["reply_part"]:
+                    target = source_target
                 content = FormattedText(part["text"], part["format"])
                 if part["kind"] in {"text", "provenance"}:
                     if target:

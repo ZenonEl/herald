@@ -6,7 +6,7 @@ import pytest
 
 from herald.batches import Batches
 from herald.config import Config, DeliveryConfig, FilePolicy, ProjectConfig, RouteConfig
-from herald.domain import BatchPart, Destination
+from herald.domain import BatchPart, Destination, ReplyTarget
 from herald.service import Herald
 from herald.telegram import TelegramAdapter
 
@@ -58,6 +58,50 @@ def test_default_clean_copy_and_separate_native_provenance(batch):
     assert restored["schema"] == "herald.batch-receipt.v1"
     assert restored["parts"][1]["reply_to"] == "answer"
     assert restored["parts"][0]["message_ids"] == [1]
+
+
+def test_existing_message_can_anchor_one_named_batch_part(batch):
+    service, calls, _ = batch
+    data = args(
+        contents={"answer": {"text": "Ready"}},
+        reply_to=ReplyTarget("-200", 42, quote="Original request"),
+        reply_part="answer",
+    )
+
+    preview = service.preview(**data)
+    assert preview["reply_part"] == "answer"
+    result = service.send("external-reply", **data)
+
+    assert result["complete"]
+    first = json.loads(calls[0].content)
+    assert first["reply_parameters"] == {"message_id": 42, "chat_id": "-200"}
+    second = json.loads(calls[1].content)
+    assert second["reply_parameters"]["message_id"] == 1
+
+
+def test_external_reply_part_must_exist_and_be_a_root(batch):
+    service, calls, _ = batch
+    target = ReplyTarget("-200", 42)
+    with pytest.raises(ValueError, match="reply_part"):
+        service.preview(
+            **args(
+                parts=[BatchPart("answer", text="Ready")],
+                reply_to=target,
+                reply_part="missing",
+            )
+        )
+    with pytest.raises(ValueError, match="already replies"):
+        service.preview(
+            **args(
+                parts=[
+                    BatchPart("context", text="Context"),
+                    BatchPart("answer", text="Ready", reply_to="context"),
+                ],
+                reply_to=target,
+                reply_part="answer",
+            )
+        )
+    assert calls == []
 
 
 @pytest.mark.parametrize(

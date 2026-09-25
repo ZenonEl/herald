@@ -121,6 +121,8 @@ def preview_batch(
     template: str | None = None,
     contents: dict[str, dict] | None = None,
     route: str | None = None,
+    reply_to: InboxMessageKey | None = None,
+    reply_part: str | None = None,
 ) -> dict:
     return Batches(build_service()).preview(
         project=project,
@@ -131,6 +133,8 @@ def preview_batch(
         template=template,
         contents=contents,
         route=route,
+        reply_to=_reply_target(reply_to),
+        reply_part=reply_part,
     )
 
 
@@ -145,6 +149,8 @@ def send_batch(
     template: str | None = None,
     contents: dict[str, dict] | None = None,
     route: str | None = None,
+    reply_to: InboxMessageKey | None = None,
+    reply_part: str | None = None,
 ) -> dict:
     return Batches(build_service()).send(
         request_id,
@@ -156,6 +162,8 @@ def send_batch(
         template=template,
         contents=contents,
         route=route,
+        reply_to=_reply_target(reply_to),
+        reply_part=reply_part,
     )
 
 
