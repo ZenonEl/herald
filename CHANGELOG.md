@@ -3,6 +3,37 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.8.0] — 2026-09-25
+
+### Added
+
+- Addressed Watch duties for already-open Claude Code and Codex sessions, with
+  deterministic profiles, owner sources, project routes and renewable leases.
+- Named text/file/album batches, separate provenance, inbox reply anchors and
+  durable idempotent delivery receipts.
+- Project-scoped Capture inbox reads, reply context, verified archive handoff and
+  addressed Watch attachments including voice notes and audio files.
+- Configurable writing rules, client-ready drafts and packaged skills for sending,
+  drafting and Watch operation.
+
+### Changed
+
+- File packs accept up to 100 items and split safely at Telegram's ten-item media
+  group boundary without repeating captions.
+- Watch and Capture share one Telegram poller; stale duties release their profiles
+  and unfinished work automatically.
+- Completed batch ledgers and unaddressed Watch messages have explicit retention;
+  incomplete delivery evidence and addressed pending work remain protected.
+
+### Fixed
+
+- Watch inspection cannot cross configured owner-source boundaries, and returned
+  `#all` fan-out rows coalesce when one session later owns several profiles.
+- Reply fallbacks for text, files, albums and batches are validated before any
+  delivery attempt; ambiguous network sends are never retried automatically.
+- Batch receipts record whether each reply was native, external or a quoted
+  fallback.
+
 ## [0.8.0-beta.9] — 2026-09-25
 
 ### Added
@@ -224,7 +255,14 @@
 - локальный capture-буфер и экспорт для Mnemo;
 - двойное лицензирование AGPL-3.0-or-later и CC BY-SA 4.0.
 
+[0.8.0]: https://github.com/ZenonEl/herald/compare/v0.7.0...v0.8.0
 [0.8.0-beta.9]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.8...v0.8.0-beta.9
+[0.8.0-beta.8]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.7...v0.8.0-beta.8
+[0.8.0-beta.7]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.6...v0.8.0-beta.7
+[0.8.0-beta.6]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.5...v0.8.0-beta.6
+[0.8.0-beta.5]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.4...v0.8.0-beta.5
+[0.8.0-beta.4]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.3...v0.8.0-beta.4
+[0.8.0-beta.3]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.2...v0.8.0-beta.3
 [0.8.0-beta.2]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.1...v0.8.0-beta.2
 [0.8.0-beta.1]: https://github.com/ZenonEl/herald/compare/v0.7.0...v0.8.0-beta.1
 [0.7.0]: https://github.com/ZenonEl/herald/compare/v0.6.0...v0.7.0

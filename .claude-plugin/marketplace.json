@@ -9,7 +9,7 @@
       "name": "herald",
       "source": "./",
       "description": "Send messages, files, and albums from Claude Code or Codex to Telegram, with a local project inbox and configurable writing styles.",
-      "version": "0.8.0-beta.9"
+      "version": "0.8.0"
     }
   ]
 }

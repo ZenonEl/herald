@@ -1,6 +1,6 @@
 [project]
 name = "herald-mcp"
-version = "0.8.0b9"
+version = "0.8.0"
 description = "Telegram messages, file albums, and a project inbox for Claude Code and Codex"
 keywords = ["mcp", "telegram", "claude-code", "codex", "albums", "notifications"]
 readme = "README.md"

@@ -49,7 +49,7 @@ topic_id = 42             # optional: capture only this forum topic
 slug = "example"
 project = "example"       # lets project-scoped inbox reads avoid other projects
 
-# Watch beta: route private messages from one trusted owner to already-open AI
+# Watch: route private messages from one trusted owner to already-open AI
 # sessions. The same herald-capture process polls Telegram for Capture and Watch.
 [watch]
 enabled = false

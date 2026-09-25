@@ -66,13 +66,11 @@ codex plugin marketplace add ZenonEl/herald
 codex plugin add herald@herald
 ```
 
-These commands install the marketplace's default branch. Features on `beta/watch`
-are available from a beta checkout until merged.
-
-For beta development, use a checkout of `beta/watch`, run `uv sync --locked`,
-and register an MCP server that runs `uv run --directory /absolute/path/to/herald herald`.
-The shared skills are in `skills/`. Do not mix this registration with a marketplace
-installation of the same server.
+These commands install Herald from the marketplace's default branch. For local
+development, use a checkout, run `uv sync --locked`, and register an MCP server
+that runs `uv run --directory /absolute/path/to/herald herald`. The shared skills
+are in `skills/`. Do not mix checkout registration with a marketplace installation
+of the same server.
 
 Create `~/.config/herald/config.toml` from [config.example.toml](config.example.toml)
 if you do not already have a config. Set your bot token file, routes, and projects.
@@ -158,8 +156,8 @@ Capture daemon, and ask an open AI session to activate a profile. Send
 and audio are downloaded into the local Watch delivery. A voice note has no normal
 caption: reply it to a tagged command, or send a captioned audio file. Herald does
 not require a transcription engine; an agent may use an available local one.
-Use `/help` for configured profiles and commands. See [Watch runtime](docs/watch-runtime.md)
-and the [current beta status](docs/beta-status.md).
+Use `/help` for configured profiles and commands. See
+[Watch runtime](docs/watch-runtime.md) for the exact Claude/Codex duty model.
 
 ## Architecture and boundaries
 
