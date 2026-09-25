@@ -296,8 +296,9 @@ def test_watch_downloads_voice_attachment_once(tmp_path: Path) -> None:
     )
     direct = update(
         5,
-        text="#alpha Расшифруй",
+        text="",
         voice={"file_id": "voice-1", "mime_type": "audio/ogg", "file_size": 7},
+        reply_to_message=update(4, text="#alpha Расшифруй")["message"],
     )
     direct["message"]["chat"] = {"id": 7, "type": "private"}
     capture.source.updates = [direct]

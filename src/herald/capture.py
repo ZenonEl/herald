@@ -385,6 +385,10 @@ class Capture:
                 chat_id, user_id, str(chat.get("type") or "")
             )
             text = payload.get("text") or payload.get("caption") or ""
+            if not text and media_of(payload)[0] is not None:
+                parent = payload.get("reply_to_message")
+                if isinstance(parent, dict):
+                    text = parent.get("text") or parent.get("caption") or ""
             command = _watch_bot_command(text) if source_name is not None else None
             if command is not None:
                 response = (
@@ -550,6 +554,8 @@ class Capture:
             "<b>Как написать</b>\n"
             "<code>#тег Проверь задачу</code> — одной сессии.\n"
             "<code>#all Дайте краткий статус</code> — всем активным сессиям.\n"
+            "Файл можно отправить с подписью <code>#тег команда</code>. Голосовое "
+            "без подписи отправьте ответом на сообщение с <code>#тег</code>.\n"
             "Ответ придёт в маршрут проекта, заданный профилем.\n\n"
             "👀 сообщение взято · 👍 выполнено · ❌ ошибка\n\n"
             "Если сессия и её монитор молчат 15 минут, профиль освобождается "
