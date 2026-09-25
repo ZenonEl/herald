@@ -264,6 +264,62 @@ def test_wait_returns_only_the_registered_duties_messages(watch: WatchStore) -> 
     assert delivery["profile"] == "alpha"
 
 
+def test_watch_delivery_keeps_attachment_metadata(watch: WatchStore) -> None:
+    cfg = config()
+    duty = watch.start(
+        cfg,
+        profiles=["alpha"],
+        primary_profile=None,
+        agent="Codex",
+        model="GPT",
+        session_name="alpha",
+    )
+    watch.ingest(
+        cfg.watch,
+        incoming(
+            102,
+            "#alpha Transcribe this",
+            attachment={
+                "kind": "voice",
+                "mime": "audio/ogg",
+                "size": 7,
+                "local_path": "/safe/watch/102_voice.ogg",
+                "note": None,
+            },
+        ),
+    )
+
+    delivery = watch.wait(duty["duty_id"], timeout=0)
+
+    assert delivery["attachment"] == {
+        "kind": "voice",
+        "mime": "audio/ogg",
+        "size": 7,
+        "local_path": "/safe/watch/102_voice.ogg",
+        "note": None,
+    }
+
+
+def test_pending_watch_attachment_is_protected_from_inbox_sweep(
+    watch: WatchStore,
+) -> None:
+    cfg = config()
+    path = watch.inbox.files_dir / "_watch" / "owner" / "voice.ogg"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"voice")
+    watch.ingest(
+        cfg.watch,
+        incoming(
+            103,
+            "#alpha Listen",
+            attachment={"kind": "voice", "local_path": str(path)},
+        ),
+    )
+
+    assert watch.inbox.sweep(watch.attachment_paths()) == 0
+    assert path.is_file()
+
+
 def test_watch_named_batch_replies_to_command_and_closes_delivery(
     watch: WatchStore, monkeypatch
 ) -> None:

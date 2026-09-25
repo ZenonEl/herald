@@ -401,6 +401,8 @@ class Capture:
                     FormattedText(response, "html"),
                 )
                 continue
+            if source_name is not None and self.watch.seen(chat_id, message_id):
+                continue
             topic_id = payload.get("message_thread_id")
             if not isinstance(topic_id, int) or isinstance(topic_id, bool):
                 topic_id = None
@@ -415,9 +417,69 @@ class Capture:
                     text=text,
                     date=stamp(payload.get("date")),
                     reply_context=reply_context_of(payload),
+                    attachment=(
+                        self._watch_attachment(payload, source_name)
+                        if source_name is not None
+                        else None
+                    ),
                 ),
             )
         return stored
+
+    def _watch_attachment(self, payload: dict, source_name: str) -> dict | None:
+        kind, media = media_of(payload)
+        if kind is None or not isinstance(media, dict):
+            return None
+        file_id = media.get("file_id")
+        attachment = {
+            "kind": kind,
+            "file_name": media.get("file_name"),
+            "mime": media.get("mime_type"),
+            "size": media.get("file_size"),
+            "local_path": None,
+            "note": None,
+        }
+        if not isinstance(file_id, str) or not file_id:
+            attachment["note"] = "not downloaded: Telegram supplied no file_id"
+            return attachment
+        if not self.settings.download_media:
+            attachment["note"] = "not downloaded: media download is disabled"
+            return attachment
+        declared = media.get("file_size")
+        if isinstance(declared, int) and declared > self.settings.max_download_bytes:
+            attachment["note"] = (
+                f"not downloaded: file is over the {self.settings.max_download_bytes} byte limit"
+            )
+            return attachment
+        safe_source = (
+            "".join(
+                character if character.isalnum() or character in "_-" else "_"
+                for character in source_name
+            ).strip("_")
+            or "source"
+        )
+        message = CapturedMessage(
+            chat_id=int((payload.get("chat") or {})["id"]),
+            message_id=int(payload["message_id"]),
+            chat_slug=f"_watch/{safe_source}",
+            date=stamp(payload.get("date")),
+            media_kind=kind,
+            file_id=file_id,
+            file_name=media.get("file_name"),
+            mime=media.get("mime_type"),
+            size=declared,
+        )
+        path = self.target(message)
+        try:
+            written = self.source.download(
+                file_id, path, self.settings.max_download_bytes
+            )
+        except (TelegramError, OSError) as error:
+            attachment["note"] = f"not downloaded: {type(error).__name__}"
+            return attachment
+        attachment["local_path"] = str(path)
+        attachment["size"] = declared or written
+        return attachment
 
     def _watch_status(self, source_name: str) -> str:
         rows = self.watch.source_status(self.config.watch, source_name)
@@ -755,7 +817,7 @@ def main() -> None:
         if time.monotonic() - last_purge > 3600:
             try:
                 removed = inbox.purge(capture.settings.ttl_days)
-                orphans = inbox.sweep()
+                orphans = inbox.sweep(watch.attachment_paths())
                 if removed or orphans:
                     log.info(
                         "purged %d archived message(s), %d orphaned file(s)",

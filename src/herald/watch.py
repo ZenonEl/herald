@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS watch_deliveries (
     text TEXT NOT NULL DEFAULT '',
     date TEXT NOT NULL DEFAULT '',
     reply_context TEXT,
+    attachment TEXT,
     state TEXT NOT NULL,
     claimed_at TEXT,
     completed_at TEXT,
@@ -66,6 +67,7 @@ class WatchInput:
     date: str = ""
     topic_id: int | None = None
     reply_context: dict | None = None
+    attachment: dict | None = None
 
 
 class WatchStore:
@@ -89,6 +91,14 @@ class WatchStore:
                     connection.execute(
                         f"ALTER TABLE watch_duties ADD COLUMN {name} {definition}"
                     )
+            delivery_columns = {
+                row[1]
+                for row in connection.execute("PRAGMA table_info(watch_deliveries)")
+            }
+            if "attachment" not in delivery_columns:
+                connection.execute(
+                    "ALTER TABLE watch_deliveries ADD COLUMN attachment TEXT"
+                )
             connection.commit()
 
     def start(
@@ -252,8 +262,8 @@ class WatchStore:
                 cursor = connection.execute(
                     "INSERT OR IGNORE INTO watch_deliveries "
                     "(delivery_id, chat_id, message_id, topic_id, source, address, "
-                    "profile, target_duty_id, text, date, reply_context, state, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "profile, target_duty_id, text, date, reply_context, attachment, "
+                    "state, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         delivery_id,
                         message.chat_id,
@@ -270,6 +280,11 @@ class WatchStore:
                             if message.reply_context is not None
                             else None
                         ),
+                        (
+                            json.dumps(message.attachment, ensure_ascii=False)
+                            if message.attachment is not None
+                            else None
+                        ),
                         state,
                         now(),
                     ),
@@ -277,6 +292,33 @@ class WatchStore:
                 inserted += cursor.rowcount
             connection.commit()
         return inserted
+
+    def seen(self, chat_id: int, message_id: int) -> bool:
+        with self.inbox.connect() as connection:
+            return (
+                connection.execute(
+                    "SELECT 1 FROM watch_deliveries WHERE chat_id=? AND message_id=? LIMIT 1",
+                    (chat_id, message_id),
+                ).fetchone()
+                is not None
+            )
+
+    def attachment_paths(self) -> tuple[str, ...]:
+        with self.inbox.connect() as connection:
+            rows = connection.execute(
+                "SELECT attachment FROM watch_deliveries "
+                "WHERE attachment IS NOT NULL "
+                "AND state IN ('unaddressed', 'pending', 'claimed')"
+            ).fetchall()
+        paths = []
+        for row in rows:
+            try:
+                path = json.loads(row["attachment"]).get("local_path")
+            except (AttributeError, TypeError, ValueError):
+                continue
+            if isinstance(path, str) and path:
+                paths.append(path)
+        return tuple(dict.fromkeys(paths))
 
     def wait(self, duty_id: str, timeout: int = 30) -> dict | None:
         if timeout < 0 or timeout > 60:
@@ -580,4 +622,6 @@ def _delivery(row) -> dict:
     result = dict(row)
     if result.get("reply_context"):
         result["reply_context"] = json.loads(result["reply_context"])
+    if result.get("attachment"):
+        result["attachment"] = json.loads(result["attachment"])
     return result

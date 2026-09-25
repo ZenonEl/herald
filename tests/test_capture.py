@@ -272,6 +272,48 @@ def test_one_poll_routes_watch_dm_without_putting_it_in_capture(
     assert watch.wait(duty["duty_id"], timeout=0)["text"] == "Проверь задачу"
 
 
+def test_watch_downloads_voice_attachment_once(tmp_path: Path) -> None:
+    capture, inbox = build(tmp_path)
+    watch = WatchStore(inbox)
+    watch.prepare()
+    capture.watch = watch
+    capture.config = replace(
+        capture.config,
+        watch=WatchConfig(
+            enabled=True,
+            sources={"owner": WatchSource(7, 7)},
+            profiles={"alpha": WatchProfile(("alpha",), "owner", "alpha")},
+        ),
+    )
+    capture._loader = lambda: capture.config
+    duty = watch.start(
+        capture.config,
+        profiles=["alpha"],
+        primary_profile=None,
+        agent="Codex",
+        model="GPT",
+        session_name="alpha",
+    )
+    direct = update(
+        5,
+        text="#alpha Расшифруй",
+        voice={"file_id": "voice-1", "mime_type": "audio/ogg", "file_size": 7},
+    )
+    direct["message"]["chat"] = {"id": 7, "type": "private"}
+    capture.source.updates = [direct]
+
+    assert capture.cycle(timeout=0) == 1
+    assert capture.cycle(timeout=0) == 0
+    delivery = watch.wait(duty["duty_id"], timeout=0)
+
+    assert capture.source.downloads == ["voice-1"]
+    assert delivery["attachment"]["kind"] == "voice"
+    assert delivery["attachment"]["mime"] == "audio/ogg"
+    path = Path(delivery["attachment"]["local_path"])
+    assert path.is_file()
+    assert path.is_relative_to(tmp_path / "files" / "_watch" / "owner")
+
+
 @pytest.mark.parametrize("command", ["/help", "/status"])
 def test_watch_help_replies_to_allowed_owner_without_creating_delivery(
     tmp_path: Path,

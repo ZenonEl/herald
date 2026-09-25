@@ -671,7 +671,7 @@ class Inbox:
             return False
         return True
 
-    def sweep(self) -> int:
+    def sweep(self, extra_references: Sequence[str] = ()) -> int:
         """Delete downloaded files no row points at any more.
 
         Two paths create them: a batch redelivered after the row was archived
@@ -687,7 +687,7 @@ class Inbox:
                 for row in connection.execute(
                     "SELECT local_path FROM messages WHERE local_path IS NOT NULL"
                 )
-            }
+            } | set(extra_references)
         removed = 0
         for path in self.files_dir.rglob("*"):
             if path.is_file() and str(path) not in referenced:
