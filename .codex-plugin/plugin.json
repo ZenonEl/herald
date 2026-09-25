@@ -1,7 +1,7 @@
 {
   "name": "herald",
-  "version": "0.7.0",
-  "description": "Локальный MCP-канал между AI-ассистентами и Telegram: готовые сообщения, файлы и захват рабочих топиков",
+  "version": "0.8.0",
+  "description": "Send messages, files, and albums from Claude Code or Codex to Telegram, with a local project inbox and configurable writing styles.",
   "author": {
     "name": "ZenonEl",
     "url": "https://github.com/ZenonEl"
@@ -12,11 +12,13 @@
   "keywords": [
     "telegram",
     "mcp",
-    "notifications",
-    "attachments",
-    "capture",
+    "mcp-server",
     "claude-code",
-    "codex"
+    "codex",
+    "notifications",
+    "file-sharing",
+    "albums",
+    "inbox"
   ],
   "skills": "./skills/",
   "mcpServers": {
@@ -33,8 +35,8 @@
   },
   "interface": {
     "displayName": "Herald",
-    "shortDescription": "Telegram-канал для Claude и Codex",
-    "longDescription": "Отправляет готовые клиентские сообщения и файлы в разрешённые Telegram-топики, захватывает рабочие чаты в локальный буфер и сохраняет провенанс ответа.",
+    "shortDescription": "Telegram messages, albums, and project inbox",
+    "longDescription": "Send messages, files, and albums from Claude Code or Codex to Telegram, with a local project inbox and configurable writing styles.",
     "developerName": "ZenonEl",
     "category": "Developer Tools",
     "capabilities": [
@@ -43,9 +45,10 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Отправь краткий клиентский ответ через Herald.",
-      "Покажи настроенные проекты и Telegram-топики.",
-      "Проверь, какие сообщения накопились в Herald."
+      "Send the result through Herald.",
+      "Send these screenshots as an album.",
+      "Read this project's Herald inbox.",
+      "Show the configured writing style."
     ],
     "websiteURL": "https://github.com/ZenonEl/herald",
     "screenshots": []

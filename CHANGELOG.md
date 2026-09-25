@@ -3,6 +3,161 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.8.0] — 2026-09-25
+
+### Added
+
+- Addressed Watch duties for already-open Claude Code and Codex sessions, with
+  deterministic profiles, owner sources, project routes and renewable leases.
+- Named text/file/album batches, separate provenance, inbox reply anchors and
+  durable idempotent delivery receipts.
+- Project-scoped Capture inbox reads, reply context, verified archive handoff and
+  addressed Watch attachments including voice notes and audio files.
+- Configurable writing rules, client-ready drafts and packaged skills for sending,
+  drafting and Watch operation.
+
+### Changed
+
+- File packs accept up to 100 items and split safely at Telegram's ten-item media
+  group boundary without repeating captions.
+- Watch and Capture share one Telegram poller; stale duties release their profiles
+  and unfinished work automatically.
+- Completed batch ledgers and unaddressed Watch messages have explicit retention;
+  incomplete delivery evidence and addressed pending work remain protected.
+
+### Fixed
+
+- Watch inspection cannot cross configured owner-source boundaries, and returned
+  `#all` fan-out rows coalesce when one session later owns several profiles.
+- Reply fallbacks for text, files, albums and batches are validated before any
+  delivery attempt; ambiguous network sends are never retried automatically.
+- Batch receipts record whether each reply was native, external or a quoted
+  fallback.
+
+## [0.8.0-beta.9] — 2026-09-25
+
+### Added
+
+- Named batches can anchor a selected part to a stored inbox message.
+- Watch delivers addressed files, voice notes and audio to the assigned session,
+  and can answer with text/file/album batches through its fixed project route.
+- Completed local batch ledgers expire after a configurable retention period;
+  incomplete delivery evidence is retained.
+
+### Changed
+
+- File packs accept up to 100 items, split media groups at Telegram's ten-item
+  boundary, emit their caption once and preserve exact partial receipts.
+- Explicit Telegram reply rejection uses a quoted fallback for text, files and
+  albums; network-ambiguous sends remain unconfirmed and are never retried.
+- Send and Watch skills choose named batches whenever files need multiple parts
+  or a separate provenance reply.
+
+### Documentation
+
+- Replaced the historical Watch concept draft with current runtime and beta status
+  documentation.
+
+## [0.8.0-beta.8] — 2026-09-21
+
+### Changed
+
+- Codex Watch now defaults to cooperative polling during project work:
+  non-blocking checks at natural checkpoints, command handling, then resuming the
+  interrupted task. Foreground waiting is reserved for explicit pure duty.
+
+## [0.8.0-beta.7] — 2026-09-21
+
+### Changed
+
+- Watch duties are renewable 15-minute leases. Stale duties expire on status,
+  registration or incoming-message checks, release their profiles and return
+  unfinished deliveries to the pending queue.
+- Claude Code guidance now loads the deferred Monitor tool explicitly, attaches
+  `monitor_command` directly, re-arms the 30-minute monitor and requires a live
+  addressed test before claiming wake-up works.
+- Codex guidance distinguishes unsupported revival of a completed CLI turn from
+  the supported host-dependent pattern of keeping a foreground monitor wait active.
+
+## [0.8.0-beta.6] — 2026-09-14
+
+### Changed
+
+- `inbox_done` now requires and stores an opaque `archive_ref`; Herald does not
+  parse it or depend on any archive implementation.
+- Inbox status separately reports taken-but-unconfirmed rows and raises an
+  attention flag after 24 hours. Existing taken rows start that clock at migration.
+- Inbox guidance distinguishes reading from the verified export/import/done flow.
+
+## [0.8.0-beta.5] — 2026-09-14
+
+### Fixed
+
+- Separate Watch monitor options from duty IDs with `--`, so IDs starting with
+  a hyphen cannot be mistaken for command-line flags. Regression tests exercise
+  the actual command returned by `watch_start` with deterministic IDs.
+
+## [0.8.0-beta.4] — 2026-09-14
+
+### Added
+
+- Draft skill loads writing rules and reviews client-ready text before sending.
+- Configurable named batches: text, files, albums, arbitrary roles/tags and native
+  replies to earlier parts. Default clean copy with a separate provenance reply.
+- Structural preview, durable idempotent receipts and explicit partial-delivery
+  states. Uncertain sends are never automatically repeated.
+- Watch activity, actual poll time, companion monitor heartbeat and owner `/status`.
+- Companion monitor command for hosts with real wake-up support; explicit Claude
+  and Codex fallback instructions when that support is unavailable.
+
+### Changed
+
+- Shared writing defaults address the client directly. Existing config and single
+  sends remain compatible; inbox filtering is unchanged.
+- Shared body hygiene applies to new batches, including accidental protocol tags.
+
+## [0.8.0-beta.3] — 2026-09-08
+
+### Added
+
+- File albums and sequential batches via `send_files`, with preflight path checks
+  and explicit partial-delivery receipts; ambiguous sends are never auto-retried.
+- Packaged Markdown server/tool prompts, local overrides, and per-project styles.
+- `get_writing_rules` to read current writing preferences without restarting MCP.
+
+### Changed
+
+- English README and plugin descriptions, discoverability keywords, and contribution guide.
+- Send skill loads configured writing rules instead of imposing a duplicate style.
+
+## [0.8.0-beta.2] — 2026-09-04
+
+### Изменено
+
+- `send_text` стал основным режимом по умолчанию: свободная форма с Telegram HTML;
+- дефолтный текст рассчитан на руководителя без контекста проекта и готовится так,
+  чтобы его можно было переслать клиенту или быстро адаптировать без погружения;
+- `brief` для свободного текста задаёт плотность изложения, но не навязывает шаблон
+  или жёсткий лимит слов.
+
+## [0.8.0-beta.1] — 2026-09-02
+
+### Добавлено
+
+- beta-режим Watch для адресной связи с уже открытыми Claude/Codex-сессиями;
+- профили с несколькими тегами, явным владельцем, маршрутом ответа и реакциями;
+- изолированные `duty_id`: обычная сессия получает только адресованные ей
+  сообщения, а общий просмотр требует отдельного разрешения;
+- общий Telegram polling для Capture и Watch без второго конкурирующего демона;
+- ответы на сообщения через Telegram reply с цитатным fallback;
+- проектная область capture-inbox по умолчанию;
+- обычные и сворачиваемые Telegram-цитаты в `send_client_copy`, с правилами,
+  запрещающими прятать в них вопросы, блокеры и обязательные факты.
+
+### Исправлено
+
+- служебные строки Claude `<summary>` и `<invoke>` больше не попадают в Telegram.
+
 ## [0.7.0] — 2026-08-26
 
 ### Добавлено
@@ -100,6 +255,16 @@
 - локальный capture-буфер и экспорт для Mnemo;
 - двойное лицензирование AGPL-3.0-or-later и CC BY-SA 4.0.
 
+[0.8.0]: https://github.com/ZenonEl/herald/compare/v0.7.0...v0.8.0
+[0.8.0-beta.9]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.8...v0.8.0-beta.9
+[0.8.0-beta.8]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.7...v0.8.0-beta.8
+[0.8.0-beta.7]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.6...v0.8.0-beta.7
+[0.8.0-beta.6]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.5...v0.8.0-beta.6
+[0.8.0-beta.5]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.4...v0.8.0-beta.5
+[0.8.0-beta.4]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.3...v0.8.0-beta.4
+[0.8.0-beta.3]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.2...v0.8.0-beta.3
+[0.8.0-beta.2]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.1...v0.8.0-beta.2
+[0.8.0-beta.1]: https://github.com/ZenonEl/herald/compare/v0.7.0...v0.8.0-beta.1
 [0.7.0]: https://github.com/ZenonEl/herald/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ZenonEl/herald/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/ZenonEl/herald/compare/v0.5.2...v0.5.3

@@ -1,6 +1,6 @@
 {
   "name": "herald",
-  "description": "Herald: Telegram-доставка и захват рабочих топиков для AI-ассистентов",
+  "description": "Send messages, files, and albums from Claude Code or Codex to Telegram, with a local project inbox and configurable writing styles.",
   "owner": {
     "name": "ZenonEl"
   },
@@ -8,8 +8,8 @@
     {
       "name": "herald",
       "source": "./",
-      "description": "Локальный MCP-канал между AI-ассистентами и Telegram: готовые сообщения, файлы и захват рабочих топиков",
-      "version": "0.7.0"
+      "description": "Send messages, files, and albums from Claude Code or Codex to Telegram, with a local project inbox and configurable writing styles.",
+      "version": "0.8.0"
     }
   ]
 }

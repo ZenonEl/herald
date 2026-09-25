@@ -8,7 +8,6 @@ from pathlib import Path
 import sqlite3
 from typing import Iterator, Sequence
 
-
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS messages (
     chat_id INTEGER NOT NULL,
@@ -36,10 +35,12 @@ CREATE TABLE IF NOT EXISTS messages (
     local_path TEXT,
     media_note TEXT,
     state TEXT NOT NULL DEFAULT 'new',
+    taken_at TEXT,
     claimed_at TEXT,
     claimed_by INTEGER,
     captured_at TEXT NOT NULL,
     done_at TEXT,
+    archive_ref TEXT,
     PRIMARY KEY (chat_id, message_id)
 );
 CREATE INDEX IF NOT EXISTS messages_by_slug ON messages (chat_slug, epoch);
@@ -175,8 +176,23 @@ class Inbox:
             columns = {
                 row[1] for row in connection.execute("PRAGMA table_info(messages)")
             }
-            if "reply_context" not in columns:
-                connection.execute("ALTER TABLE messages ADD COLUMN reply_context TEXT")
+            additions = {
+                "reply_context": "TEXT",
+                "taken_at": "TEXT",
+                "archive_ref": "TEXT",
+            }
+            for name, definition in additions.items():
+                if name not in columns:
+                    connection.execute(
+                        f"ALTER TABLE messages ADD COLUMN {name} {definition}"
+                    )
+            # The old schema did not record when a row became taken. Start its
+            # warning clock at migration time instead of inventing old history.
+            connection.execute(
+                "UPDATE messages SET taken_at=? "
+                "WHERE state='taken' AND taken_at IS NULL",
+                (now(),),
+            )
             connection.commit()
 
     def store(self, messages: Sequence[CapturedMessage]) -> int:
@@ -222,9 +238,23 @@ class Inbox:
                     found.add((chat_id, message_id))
         return found
 
+    def message(self, chat_id: int, message_id: int) -> dict | None:
+        """Return one stored message without changing its archival state."""
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM messages WHERE chat_id=? AND message_id=?",
+                (chat_id, message_id),
+            ).fetchone()
+        if row is None:
+            return None
+        record = dict(row)
+        if record.get("reply_context"):
+            record["reply_context"] = json.loads(record["reply_context"])
+        return record
+
     def fetch(
         self,
-        chat_slug: str | None,
+        chat_slug: str | Sequence[str] | None,
         since: str | None,
         until: str | None,
         limit: int,
@@ -239,13 +269,17 @@ class Inbox:
         messages became invisible with nothing in the answer to say so.
         """
         # `claimed` не отдаётся никому, кроме владельца сборки: строка занята.
-        clauses = ["state = 'new'"] if not include_taken else [
-            "state IN ('new', 'taken')"
-        ]
+        clauses = (
+            ["state = 'new'"] if not include_taken else ["state IN ('new', 'taken')"]
+        )
         values: list[object] = []
-        if chat_slug:
+        if isinstance(chat_slug, str) and chat_slug:
             clauses.append("chat_slug = ?")
             values.append(chat_slug)
+        elif chat_slug:
+            slugs = tuple(chat_slug)
+            clauses.append("chat_slug IN (" + ",".join("?" for _ in slugs) + ")")
+            values.extend(slugs)
         start = as_epoch(since)
         end = as_epoch(until, end_of_day=True)
         if start is not None:
@@ -272,11 +306,23 @@ class Inbox:
                 target = "claimed" if claim else "taken"
                 stamp = now() if claim else None
                 owner = os.getpid() if claim else None
-                connection.executemany(
-                    f"UPDATE messages SET state='{target}', claimed_at=?, "
-                    "claimed_by=? WHERE chat_id=? AND message_id=?",
-                    [(stamp, owner, row["chat_id"], row["message_id"]) for row in rows],
-                )
+                if claim:
+                    connection.executemany(
+                        "UPDATE messages SET state='claimed', claimed_at=?, "
+                        "claimed_by=? WHERE chat_id=? AND message_id=?",
+                        [
+                            (stamp, owner, row["chat_id"], row["message_id"])
+                            for row in rows
+                        ],
+                    )
+                else:
+                    stamp = now()
+                    connection.executemany(
+                        "UPDATE messages SET state='taken', "
+                        "taken_at=coalesce(taken_at, ?), claimed_at=NULL, "
+                        "claimed_by=NULL WHERE chat_id=? AND message_id=?",
+                        [(stamp, row["chat_id"], row["message_id"]) for row in rows],
+                    )
             if mark or claim:
                 connection.commit()
         result = []
@@ -358,7 +404,8 @@ class Inbox:
         if len(chats) > 1:
             self.settle(keys, taken=False, restore=restore)
             raise ValueError(
-                "The range spans several chats: " + ", ".join(chats)
+                "The range spans several chats: "
+                + ", ".join(chats)
                 + ". Export them one chat at a time - one archive holds one "
                 "topic, and message ids repeat across chats."
             )
@@ -378,9 +425,7 @@ class Inbox:
             # проверку одновременно (файла ещё нет у обоих) и второй затирал
             # первый, а помеченными оставались все.
             manifest_path = target / "inbox.json"
-            handle = os.open(
-                manifest_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644
-            )
+            handle = os.open(manifest_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
             placed.append(manifest_path)
             with open(handle, "w", encoding="utf-8") as file:
                 file.write(payload)
@@ -407,8 +452,9 @@ class Inbox:
             "chats": chats,
         }
 
-    def _copy_into(self, target: Path, rows: list[dict],
-                   placed: list[Path]) -> tuple[int, list[str]]:
+    def _copy_into(
+        self, target: Path, rows: list[dict], placed: list[Path]
+    ) -> tuple[int, list[str]]:
         copied = 0
         missing: list[str] = []
         for row in rows:
@@ -419,10 +465,15 @@ class Inbox:
             origin = Path(source)
             if not self._inside_files_dir(origin) or not origin.is_file():
                 missing.append(source)
-                row["media_note"] = "; ".join(filter(None, [
-                    row.get("media_note"),
-                    "file was not in the buffer at export time",
-                ]))
+                row["media_note"] = "; ".join(
+                    filter(
+                        None,
+                        [
+                            row.get("media_note"),
+                            "file was not in the buffer at export time",
+                        ],
+                    )
+                )
                 continue
             relative = Path("files") / origin.parent.name / origin.name
             destination = target / relative
@@ -435,10 +486,15 @@ class Inbox:
                 # ронять весь экспорт.
                 missing.append(source)
                 row["local_path"] = None
-                row["media_note"] = "; ".join(filter(None, [
-                    row.get("media_note"),
-                    f"file disappeared while exporting: {error.strerror or error}",
-                ]))
+                row["media_note"] = "; ".join(
+                    filter(
+                        None,
+                        [
+                            row.get("media_note"),
+                            f"file disappeared while exporting: {error.strerror or error}",
+                        ],
+                    )
+                )
                 continue
             placed.append(destination)
             row["local_path"] = relative.as_posix()
@@ -460,12 +516,23 @@ class Inbox:
         и два одновременных экспорта уносили одни и те же строки. Поэтому
         промежуточное состояние: занято под сборку, но ещё не отдано.
         """
-        rows = self.fetch(chat_slug, since, until, limit, include_taken=include_taken,
-                          mark=False, claim=True)
+        rows = self.fetch(
+            chat_slug,
+            since,
+            until,
+            limit,
+            include_taken=include_taken,
+            mark=False,
+            claim=True,
+        )
         return rows
 
-    def settle(self, keys: Sequence[tuple[int, int]], taken: bool,
-               restore: dict[tuple[int, int], str] | None = None) -> int:
+    def settle(
+        self,
+        keys: Sequence[tuple[int, int]],
+        taken: bool,
+        restore: dict[tuple[int, int], str] | None = None,
+    ) -> int:
         """Завершить сборку: отдано (`taken`) либо сорвалось (вернуть как было).
 
         Вернуть именно как было, а не всегда в `new`: сорвавшийся повторный
@@ -483,13 +550,23 @@ class Inbox:
                 )
                 connection.commit()
                 return cursor.rowcount
-        state = "taken" if taken else "new"
         with self.connect() as connection:
-            cursor = connection.executemany(
-                f"UPDATE messages SET state='{state}', claimed_at=NULL, "
-                "claimed_by=NULL WHERE chat_id=? AND message_id=? AND state='claimed'",
-                list(keys),
-            )
+            if taken:
+                stamp = now()
+                cursor = connection.executemany(
+                    "UPDATE messages SET state='taken', "
+                    "taken_at=coalesce(taken_at, ?), claimed_at=NULL, "
+                    "claimed_by=NULL WHERE chat_id=? AND message_id=? "
+                    "AND state='claimed'",
+                    [(stamp, *key) for key in keys],
+                )
+            else:
+                cursor = connection.executemany(
+                    "UPDATE messages SET state='new', claimed_at=NULL, "
+                    "claimed_by=NULL WHERE chat_id=? AND message_id=? "
+                    "AND state='claimed'",
+                    list(keys),
+                )
             connection.commit()
             return cursor.rowcount
 
@@ -505,9 +582,9 @@ class Inbox:
         # переиспользуются, и заявка мёртвого владельца может выглядеть живой
         # вечно. Сутки заведомо больше любой сборки, поэтому живую работу этот
         # порог не трогает, а запертый навсегда материал освобождает.
-        cutoff = (
-            datetime.now(timezone.utc) - timedelta(days=1)
-        ).isoformat(timespec="seconds")
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(
+            timespec="seconds"
+        )
         with self.connect() as connection:
             rows = connection.execute(
                 "SELECT DISTINCT claimed_by FROM messages WHERE state='claimed'"
@@ -522,7 +599,9 @@ class Inbox:
             connection.commit()
             return cursor.rowcount
 
-    def mark_done(self, keys: Sequence[tuple[int, int]]) -> tuple[int, list[str], list[str]]:
+    def mark_done(
+        self, keys: Sequence[tuple[int, int]], archive_ref: str
+    ) -> tuple[int, list[str], list[str]]:
         """Mark messages as archived and drop their downloaded bytes.
 
         The archive already holds a hashed copy, so the buffer copy is redundant
@@ -533,6 +612,11 @@ class Inbox:
         instruction to unlink an arbitrary path, and a row written before
         files_dir was changed points outside it.
         """
+        if not isinstance(archive_ref, str):
+            raise ValueError("archive_ref must contain 1–1000 characters")
+        archive_ref = archive_ref.strip()
+        if not archive_ref or len(archive_ref) > 1000:
+            raise ValueError("archive_ref must contain 1–1000 characters")
         if not keys:
             return 0, [], []
         stamp = now()
@@ -551,9 +635,10 @@ class Inbox:
                     # буфер пуст, материала не осталось нигде.
                     continue
                 connection.execute(
-                    "UPDATE messages SET state='done', done_at=?, local_path=NULL "
+                    "UPDATE messages SET state='done', done_at=?, archive_ref=?, "
+                    "local_path=NULL "
                     "WHERE chat_id=? AND message_id=?",
-                    (stamp, chat_id, message_id),
+                    (stamp, archive_ref, chat_id, message_id),
                 )
                 marked += 1
                 if row["local_path"]:
@@ -586,7 +671,7 @@ class Inbox:
             return False
         return True
 
-    def sweep(self) -> int:
+    def sweep(self, extra_references: Sequence[str] = ()) -> int:
         """Delete downloaded files no row points at any more.
 
         Two paths create them: a batch redelivered after the row was archived
@@ -602,7 +687,7 @@ class Inbox:
                 for row in connection.execute(
                     "SELECT local_path FROM messages WHERE local_path IS NOT NULL"
                 )
-            }
+            } | set(extra_references)
         removed = 0
         for path in self.files_dir.rglob("*"):
             if path.is_file() and str(path) not in referenced:
@@ -614,9 +699,9 @@ class Inbox:
         return removed
 
     def purge(self, ttl_days: int) -> int:
-        cutoff = (
-            datetime.now(timezone.utc) - timedelta(days=ttl_days)
-        ).isoformat(timespec="seconds")
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=ttl_days)).isoformat(
+            timespec="seconds"
+        )
         with self.connect() as connection:
             cursor = connection.execute(
                 "DELETE FROM messages WHERE state='done' AND done_at IS NOT NULL "
@@ -632,28 +717,59 @@ class Inbox:
             connection.commit()
             return cursor.rowcount
 
-    def status(self) -> dict:
+    def status(self, chat_slug: str | Sequence[str] | None = None) -> dict:
         with self.connect() as connection:
+            if isinstance(chat_slug, str) and chat_slug:
+                filter_sql = " AND chat_slug=?"
+                values: list[object] = [chat_slug]
+            elif chat_slug:
+                slugs = tuple(chat_slug)
+                filter_sql = " AND chat_slug IN (" + ",".join("?" for _ in slugs) + ")"
+                values = list(slugs)
+            else:
+                filter_sql = ""
+                values = []
             pending = connection.execute(
                 "SELECT chat_slug, state, count(*) AS messages, min(date) AS oldest, "
                 "max(date) AS newest, "
                 "sum(CASE WHEN local_path IS NOT NULL THEN 1 ELSE 0 END) AS files, "
                 "coalesce(sum(CASE WHEN local_path IS NOT NULL THEN size ELSE 0 END), 0) "
                 "AS bytes "
-                "FROM messages WHERE state != 'done' GROUP BY chat_slug, state "
-                "ORDER BY chat_slug, state"
+                f"FROM messages WHERE state != 'done'{filter_sql} "
+                "GROUP BY chat_slug, state ORDER BY chat_slug, state",
+                values,
             ).fetchall()
             done = connection.execute(
-                "SELECT count(*) AS n FROM messages WHERE state='done'"
+                f"SELECT count(*) AS n FROM messages WHERE state='done'{filter_sql}",
+                values,
             ).fetchone()["n"]
             undated = connection.execute(
-                "SELECT count(*) AS n FROM messages WHERE epoch IS NULL AND state != 'done'"
+                "SELECT count(*) AS n FROM messages WHERE epoch IS NULL "
+                f"AND state != 'done'{filter_sql}",
+                values,
             ).fetchone()["n"]
+            stale_cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(
+                timespec="seconds"
+            )
+            taken = connection.execute(
+                "SELECT count(*) AS messages, min(taken_at) AS oldest_taken_at, "
+                "sum(CASE WHEN taken_at < ? THEN 1 ELSE 0 END) AS stale_messages "
+                f"FROM messages WHERE state='taken'{filter_sql}",
+                [stale_cutoff, *values],
+            ).fetchone()
             last_poll = self._bookmark(connection, LAST_POLL_KEY)
+        stale = taken["stale_messages"] or 0
         return {
             "pending": [dict(row) for row in pending],
             "undated": undated,
             "archived_awaiting_ttl": done,
+            "taken_unarchived": {
+                "messages": taken["messages"],
+                "oldest_taken_at": taken["oldest_taken_at"],
+                "stale_messages": stale,
+                "stale_after_hours": 24,
+                "attention_required": stale > 0,
+            },
             "last_poll": last_poll,
             "database": str(self.path),
         }
