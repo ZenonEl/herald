@@ -329,7 +329,10 @@ def render_reply_fallback(content: FormattedText, target: ReplyTarget) -> Format
     else:
         detail = reference
         if target.quote:
-            detail += "\n> " + target.quote.strip().replace("\n", "\n> ")
+            quote = target.quote.strip()
+            if len(quote) > 600:
+                quote = quote[:599].rstrip() + "…"
+            detail += "\n> " + quote.replace("\n", "\n> ")
         suffix = f"Ответ на сообщение:\n{detail}"
     return FormattedText(f"{content.text}\n\n{suffix}", content.format)
 

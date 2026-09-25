@@ -62,6 +62,32 @@ def test_rejected_message_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         adapter.send(Destination("1"), FormattedText("hello", "plain"))
 
 
+def test_reply_fallback_is_validated_before_the_first_http_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BOT_TOKEN", "secret")
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(400, json={"ok": False, "description": "gone"})
+
+    adapter = TelegramAdapter(
+        "BOT_TOKEN",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(TelegramError, match="4096"):
+        adapter.send_reply(
+            Destination("1"),
+            FormattedText("x" * 4090, "plain"),
+            ReplyTarget("1", 55, quote="q" * 600),
+            FormattedText("x" * 4090 + "\n\nFallback", "plain"),
+        )
+
+    assert calls == []
+
+
 def test_reads_token_from_file(tmp_path) -> None:
     token_file = tmp_path / "token"
     token_file.write_text("file-secret\n", encoding="utf-8")

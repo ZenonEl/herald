@@ -181,6 +181,13 @@ class Batches:
             prepared.append(data)
             seen.add(part.id)
         source_part = self._reply_part(items, reply_to, reply_part)
+        self._validate_reply_fallbacks(
+            adapter,
+            routing.destination,
+            prepared,
+            reply_to,
+            source_part,
+        )
         return {
             "project": project,
             "route": route_name,
@@ -224,6 +231,44 @@ class Batches:
         if by_id[requested].kind == "provenance":
             raise ValueError("reply_part cannot be provenance")
         return requested
+
+    @staticmethod
+    def _validate_reply_fallbacks(
+        adapter, destination, parts, source_target, source_part
+    ) -> None:
+        synthetic = ReplyTarget(
+            destination.chat_id,
+            9_223_372_036_854_775_807,
+            destination.topic_id,
+        )
+        for part in parts:
+            target = None
+            if part["id"] == source_part:
+                target = source_target
+            elif part["reply_to"] is not None:
+                target = synthetic
+            attachments = [
+                Attachment(Path(path), part["file_kind"]) for path in part["paths"]
+            ]
+            content = FormattedText(part["text"], part["format"])
+            if target is not None:
+                fallback = render_reply_fallback(content, target)
+                if attachments:
+                    adapter.validate_files(
+                        attachments,
+                        fallback,
+                        album=part["kind"] == "album",
+                    )
+                else:
+                    adapter.validate_text(fallback)
+            if part["kind"] == "album" and len(attachments) > 10:
+                adapter.validate_files(
+                    attachments[10:20],
+                    render_reply_fallback(
+                        FormattedText("", part["format"]), synthetic
+                    ),
+                    album=True,
+                )
 
     @contextmanager
     def _connect(self):
@@ -329,6 +374,7 @@ class Batches:
                     "reply_to": p["reply_to"],
                     "state": "not_attempted",
                     "message_ids": [],
+                    "reply_modes": [],
                     "sent_paths": [],
                     "unconfirmed_paths": [],
                     "not_attempted_paths": list(p["paths"]),
@@ -360,16 +406,17 @@ class Batches:
                 content = FormattedText(part["text"], part["format"])
                 if part["kind"] in {"text", "provenance"}:
                     if target:
-                        ids = [
-                            adapter.send_reply(
-                                routing.destination,
-                                content,
-                                target,
-                                render_reply_fallback(content, target),
-                            )[0]
-                        ]
+                        message_id, reply_mode = adapter.send_reply(
+                            routing.destination,
+                            content,
+                            target,
+                            render_reply_fallback(content, target),
+                        )
+                        ids = [message_id]
                     else:
                         ids = [adapter.send(routing.destination, content)]
+                        reply_mode = "none"
+                    receipt["reply_modes"].append(reply_mode)
                 else:
                     attachments = [
                         Attachment(Path(path), part["file_kind"])
@@ -406,7 +453,7 @@ class Batches:
                         )
                         if len(group) > 1:
                             if group_target:
-                                group_ids, _ = adapter.send_album_reply(
+                                group_ids, reply_mode = adapter.send_album_reply(
                                     routing.destination,
                                     group,
                                     group_content,
@@ -421,25 +468,25 @@ class Batches:
                                     group,
                                     group_content,
                                 )
+                                reply_mode = "none"
                         elif group_target:
-                            group_ids = [
-                                adapter.send_file_reply(
-                                    routing.destination,
-                                    group[0],
-                                    group_content,
-                                    group_target,
-                                    render_reply_fallback(
-                                        group_content, group_target
-                                    ),
-                                )[0]
-                            ]
+                            message_id, reply_mode = adapter.send_file_reply(
+                                routing.destination,
+                                group[0],
+                                group_content,
+                                group_target,
+                                render_reply_fallback(group_content, group_target),
+                            )
+                            group_ids = [message_id]
                         else:
                             group_ids = [
                                 adapter.send_file(
                                     routing.destination, group[0], group_content
                                 )
                             ]
+                            reply_mode = "none"
                         ids.extend(group_ids)
+                        receipt["reply_modes"].append(reply_mode)
                         receipt["message_ids"] = list(ids)
                         receipt["sent_paths"].extend(group_paths)
                         receipt["unconfirmed_paths"] = []

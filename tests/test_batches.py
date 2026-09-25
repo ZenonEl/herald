@@ -59,6 +59,8 @@ def test_default_clean_copy_and_separate_native_provenance(batch):
     assert restored["schema"] == "herald.batch-receipt.v1"
     assert restored["parts"][1]["reply_to"] == "answer"
     assert restored["parts"][0]["message_ids"] == [1]
+    assert restored["parts"][0]["reply_modes"] == ["none"]
+    assert restored["parts"][1]["reply_modes"] == ["native"]
 
 
 def test_existing_message_can_anchor_one_named_batch_part(batch):
@@ -154,6 +156,19 @@ def test_all_parts_preflight_before_any_http(batch, parts):
     service, calls, _ = batch
     with pytest.raises((ValueError, RuntimeError)):
         service.send("invalid", **args(parts=parts))
+    assert calls == []
+
+
+def test_batch_preflights_external_reply_fallback_before_any_http(batch):
+    service, calls, _ = batch
+    with pytest.raises(RuntimeError, match="4096"):
+        service.send(
+            "oversized-fallback",
+            **args(
+                parts=[BatchPart("answer", text="x" * 4090, format="plain")],
+                reply_to=ReplyTarget("-200", 42, quote="q" * 600),
+            ),
+        )
     assert calls == []
 
 

@@ -111,6 +111,8 @@ class TelegramAdapter:
         target: ReplyTarget,
         fallback: FormattedText,
     ) -> tuple[list[int], ReplyMode]:
+        self.validate_files(attachments, caption, album=True)
+        self.validate_files(attachments, fallback, album=True)
         _, body = self._send_album(destination, attachments, caption, target)
         if body.get("ok"):
             mode: ReplyMode = (
@@ -203,6 +205,8 @@ class TelegramAdapter:
         target: ReplyTarget,
         fallback: FormattedText,
     ) -> tuple[int, ReplyMode]:
+        self.validate_text(content)
+        self.validate_text(fallback)
         response, body = self._send_text(
             destination,
             content,
@@ -238,6 +242,8 @@ class TelegramAdapter:
         target: ReplyTarget,
         fallback: FormattedText,
     ) -> tuple[int, ReplyMode]:
+        self.validate_files([attachment], caption)
+        self.validate_files([attachment], fallback)
         response, body = self._send_attachment(
             destination,
             attachment,
