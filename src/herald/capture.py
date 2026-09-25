@@ -823,11 +823,16 @@ def main() -> None:
         if time.monotonic() - last_purge > 3600:
             try:
                 removed = inbox.purge(capture.settings.ttl_days)
+                watch_removed = watch.cleanup(
+                    unaddressed_ttl_days=config.watch.unaddressed_ttl_days
+                )
                 orphans = inbox.sweep(watch.attachment_paths())
-                if removed or orphans:
+                if removed or watch_removed or orphans:
                     log.info(
-                        "purged %d archived message(s), %d orphaned file(s)",
+                        "purged %d archived message(s), %d unaddressed Watch "
+                        "message(s), %d orphaned file(s)",
                         removed,
+                        watch_removed,
                         orphans,
                     )
             except Exception:

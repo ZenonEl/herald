@@ -54,6 +54,7 @@ project = "example"       # lets project-scoped inbox reads avoid other projects
 [watch]
 enabled = false
 allow_inspect_all = false  # normal sessions can inspect only their own deliveries
+unaddressed_ttl_days = 7   # mistagged/unaddressed messages and files expire
 
 [watch.sources.owner_dm]
 chat_id = 123456789        # private chat with the bot

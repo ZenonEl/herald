@@ -39,6 +39,12 @@ releases its profiles and returns unfinished deliveries to the pending queue.
 This removes registrations left behind by closed terminals without a separate
 cleanup daemon.
 
+Messages accepted from an allowed owner but not addressed to a profile are
+visible only to duties registered for that same Watch source. They expire after
+`watch.unaddressed_ttl_days` (seven days by default); downloaded attachments are
+then released to the normal file sweep. Addressed pending or claimed work is not
+removed by this policy.
+
 For a manual probe, use `herald-watch-monitor --once -- DUTY_ID`. Keep options
 before `--`: generated IDs may start with a hyphen. Prefer the exact
 `monitor_command` returned by `watch_start` for the correct Python and config.

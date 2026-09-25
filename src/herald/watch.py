@@ -344,6 +344,25 @@ class WatchStore:
                 paths.append(path)
         return tuple(dict.fromkeys(paths))
 
+    def cleanup(self, *, unaddressed_ttl_days: int) -> int:
+        if (
+            not isinstance(unaddressed_ttl_days, int)
+            or isinstance(unaddressed_ttl_days, bool)
+            or unaddressed_ttl_days <= 0
+        ):
+            raise ValueError("unaddressed_ttl_days must be a positive integer")
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=unaddressed_ttl_days)
+        ).isoformat(timespec="seconds")
+        with self.inbox.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM watch_deliveries "
+                "WHERE state='unaddressed' AND created_at < ?",
+                (cutoff,),
+            )
+            connection.commit()
+        return cursor.rowcount
+
     def wait(self, duty_id: str, timeout: int = 30) -> dict | None:
         if timeout < 0 or timeout > 60:
             raise ValueError("timeout must be between 0 and 60 seconds")

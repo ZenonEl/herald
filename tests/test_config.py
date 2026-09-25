@@ -109,6 +109,7 @@ project = "alpha"
     assert config.watch.enabled is True
     assert config.watch.sources["owner"].user_id == 7
     assert config.watch.profile_for_tag("#101") == "alpha"
+    assert config.watch.unaddressed_ttl_days == 7
     assert config.watch.profiles["alpha"].reply_context == "native_or_quote"
     assert config.watch.profiles["alpha"].reaction_done == "👍"
 

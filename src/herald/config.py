@@ -108,6 +108,7 @@ class WatchConfig:
     enabled: bool = False
     platform: str = "telegram"
     allow_inspect_all: bool = False
+    unaddressed_ttl_days: int = 7
     sources: Mapping[str, WatchSource] = field(default_factory=dict)
     profiles: Mapping[str, WatchProfile] = field(default_factory=dict)
 
@@ -405,6 +406,11 @@ def _watch(raw: Any) -> WatchConfig:
             raw.get("allow_inspect_all"),
             "watch.allow_inspect_all",
             defaults.allow_inspect_all,
+        ),
+        unaddressed_ttl_days=_positive_int(
+            raw.get("unaddressed_ttl_days"),
+            "watch.unaddressed_ttl_days",
+            defaults.unaddressed_ttl_days,
         ),
         sources=sources,
         profiles=profiles,

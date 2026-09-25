@@ -315,9 +315,44 @@ def test_pending_watch_attachment_is_protected_from_inbox_sweep(
             attachment={"kind": "voice", "local_path": str(path)},
         ),
     )
+    with watch.inbox.connect() as connection:
+        connection.execute(
+            "UPDATE watch_deliveries SET created_at='2000-01-01T00:00:00+00:00' "
+            "WHERE message_id=103"
+        )
+        connection.commit()
 
+    assert watch.cleanup(unaddressed_ttl_days=7) == 0
     assert watch.inbox.sweep(watch.attachment_paths()) == 0
     assert path.is_file()
+
+
+def test_expired_unaddressed_attachment_is_released_for_sweep(
+    watch: WatchStore,
+) -> None:
+    cfg = config()
+    path = watch.inbox.files_dir / "_watch" / "owner" / "orphan.ogg"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"voice")
+    watch.ingest(
+        cfg.watch,
+        incoming(
+            104,
+            "message without an address",
+            attachment={"kind": "voice", "local_path": str(path)},
+        ),
+    )
+    with watch.inbox.connect() as connection:
+        connection.execute(
+            "UPDATE watch_deliveries SET created_at='2000-01-01T00:00:00+00:00' "
+            "WHERE message_id=104"
+        )
+        connection.commit()
+
+    assert watch.inbox.sweep(watch.attachment_paths()) == 0
+    assert watch.cleanup(unaddressed_ttl_days=7) == 1
+    assert watch.inbox.sweep(watch.attachment_paths()) == 1
+    assert not path.exists()
 
 
 def test_watch_named_batch_replies_to_command_and_closes_delivery(
