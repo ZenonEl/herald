@@ -5,15 +5,16 @@
 ## File packs
 
 Ask the assistant to use `send_files(paths=[...], mode="album", kind="auto", ...)`.
-An album contains 2–10 photos or 2–10 documents. To preserve originals or mix
-PDFs and images, choose `kind="document"`. Choose `mode="separate"` for ordered
-individual sends (up to 100). Caption text is repeated on separate sends.
+An album pack contains 2–100 photos or documents and is split into linked groups
+of ten. To preserve originals or mix PDFs and images, choose `kind="document"`.
+Choose `mode="separate"` for ordered individual sends (up to 100). The caption
+appears once per logical pack.
 
 Check the returned `complete` flag. `sent` maps confirmed paths to Telegram IDs;
 `unconfirmed` means delivery is not confirmed, not necessarily absent;
-`not_attempted` can be sent later. There is no persistent deduplication or automatic retry.
-Albums can reply to a stored inbox message using `reply_to`. A rejected album
-reply is not retried as a quote. Ordinary single-file replies retain quote fallback.
+`not_attempted` can be sent later. There is no automatic retry. Albums and named
+batches can reply to a stored inbox message using `reply_to`. An explicit Telegram
+rejection uses a quoted fallback; a network-ambiguous attempt is never retried.
 
 ## Prompt overrides
 

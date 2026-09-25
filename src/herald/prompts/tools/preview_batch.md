@@ -5,3 +5,5 @@ Roles and tags are arbitrary metadata. Provenance is generated, requires reply_t
 and takes no text/files. No automatic signatures are added to other parts.
 All file paths and platform size limits are checked. validation=structure_only
 is NOT a claim of factual accuracy or client readiness; the AI must check those.
+Top-level reply_to may anchor one selected reply_part to a stored inbox message;
+this is separate from a part's named reply_to relationship.

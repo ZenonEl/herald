@@ -3,6 +3,30 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.8.0-beta.9] — 2026-09-25
+
+### Added
+
+- Named batches can anchor a selected part to a stored inbox message.
+- Watch delivers addressed files, voice notes and audio to the assigned session,
+  and can answer with text/file/album batches through its fixed project route.
+- Completed local batch ledgers expire after a configurable retention period;
+  incomplete delivery evidence is retained.
+
+### Changed
+
+- File packs accept up to 100 items, split media groups at Telegram's ten-item
+  boundary, emit their caption once and preserve exact partial receipts.
+- Explicit Telegram reply rejection uses a quoted fallback for text, files and
+  albums; network-ambiguous sends remain unconfirmed and are never retried.
+- Send and Watch skills choose named batches whenever files need multiple parts
+  or a separate provenance reply.
+
+### Documentation
+
+- Replaced the historical Watch concept draft with current runtime and beta status
+  documentation.
+
 ## [0.8.0-beta.8] — 2026-09-21
 
 ### Changed
@@ -200,6 +224,7 @@
 - локальный capture-буфер и экспорт для Mnemo;
 - двойное лицензирование AGPL-3.0-or-later и CC BY-SA 4.0.
 
+[0.8.0-beta.9]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.8...v0.8.0-beta.9
 [0.8.0-beta.2]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.1...v0.8.0-beta.2
 [0.8.0-beta.1]: https://github.com/ZenonEl/herald/compare/v0.7.0...v0.8.0-beta.1
 [0.7.0]: https://github.com/ZenonEl/herald/compare/v0.6.0...v0.7.0

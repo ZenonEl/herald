@@ -6,6 +6,15 @@ Watch routes commands to already-open AI sessions. Capture receives Telegram
 updates, but the AI still needs to poll its own duty. Registration does not install
 a listener or wake a terminal.
 
+Addressed Watch commands may carry one document, image, voice note, audio or other
+Telegram attachment. Herald downloads it under the local capture file directory
+and returns metadata plus `local_path` to the assigned session. Failed or oversized
+downloads remain visible with a reason instead of silently losing the command.
+Voice notes have no normal caption: reply the voice note to a message beginning
+with the target `#tag`, or send audio as a captioned file. The agent may use an
+available local transcription tool. Herald does not bundle Whisper or upload audio
+to a transcription provider.
+
 Ask: **“Enable Herald Watch for profile demo. Verify that incoming messages wake
 this session; if this host cannot do that, tell me.”** Send a test command with
 the profile's tag in the configured owner's bot DM.
@@ -93,3 +102,8 @@ user's answer still requires polls.
 After restarting, verify or start the host runtime again. Restarting Capture alone
 does not restore AI polling. Inbox filtering, Watch ownership and old reply
 fallbacks are unchanged.
+
+Use `watch_reply` for one signed text response. Use `watch_reply_batch` when the
+response needs clean client copy plus a separate signature, multiple messages,
+files or albums. Both derive the destination and reply target from the claimed
+delivery; the caller cannot redirect a Watch response to arbitrary Telegram IDs.

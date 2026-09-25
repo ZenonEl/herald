@@ -39,6 +39,8 @@ Existing single-message tools keep their inline signature:
 
 Use `herald-draft` to prepare client-ready text without sending. Named batches can
 combine text, files, albums and provenance. See [drafts and batches](docs/batches.md).
+They can anchor a selected part to a stored inbox message while keeping the
+signature as a separate reply.
 
 Watch exposes real poll time, reported activity and monitor liveness through
 `/status` in the owner's bot DM. Registration alone does not mean the AI listens;
@@ -105,18 +107,19 @@ changes are reread by `get_writing_rules`, without restarting the server.
 
 | Mode | Behavior |
 | --- | --- |
-| `album` (default) | 2–10 files, one caption, one Telegram media group |
-| `separate` | 1–100 files, ordered sends, caption on each message |
+| `album` (default) | 2–100 files, split into linked Telegram groups of ten |
+| `separate` | 1–100 files, ordered and linked to the first message |
 
 `kind=auto` sends supported small images as photos and other files as documents.
 An album must contain either photos or documents; use `kind=document` to send
 mixed file types together as originals. Native video/audio album types are not
 implemented yet; these files can be sent as documents.
 
-All paths are checked against `files.allowed_roots` before sending. The caption
-must fit 1024 visible characters including provenance. Batches stop on a failed
-send and return confirmed receipts, unconfirmed files, and files not attempted.
-There is no automatic retry of uncertain sends. Albums are not automatically split.
+All paths are checked against `files.allowed_roots` before sending. One logical
+pack carries its caption and provenance once; later groups reply to the first.
+The caption must fit 1024 visible characters including provenance. Batches stop
+on a failed send and return confirmed receipts, unconfirmed files, and files not
+attempted. There is no automatic retry of uncertain sends.
 
 Album constraints follow [Telegram's sendMediaGroup contract](https://core.telegram.org/bots/api#sendmediagroup).
 
@@ -151,8 +154,12 @@ flags rows left taken but unconfirmed for more than 24 hours.
 
 For optional Watch, configure an allowed private source and profiles, start the same
 Capture daemon, and ask an open AI session to activate a profile. Send
-`#example Your request` in the bot DM. Use `/help` there for configured profiles
-and commands. [Watch design and limits](docs/watch-concept.md).
+`#example Your request` in the bot DM. Addressed documents, images, voice notes
+and audio are downloaded into the local Watch delivery. A voice note has no normal
+caption: reply it to a tagged command, or send a captioned audio file. Herald does
+not require a transcription engine; an agent may use an available local one.
+Use `/help` for configured profiles and commands. See [Watch runtime](docs/watch-runtime.md)
+and the [current beta status](docs/beta-status.md).
 
 ## Architecture and boundaries
 

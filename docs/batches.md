@@ -47,15 +47,16 @@ permissions. All parts go to one destination. **`internal` is not private**:
 never use that layout directly in a client's chat.
 
 `kind=text` is the default. `file` takes one absolute path in `paths`; `album`
-takes 2–10. `file_kind` is `auto`, `photo` or `document`. Mixed photo/document
-albums require `document`. Text is the caption for files/albums. Text limits are
-4096 visible characters; captions 1024. Existing file allowlists still apply.
+takes 2–100 and is split into linked Telegram groups of ten. `file_kind` is
+`auto`, `photo` or `document`. Mixed photo/document albums require `document`.
+Text is the caption for files/albums and is emitted once per logical pack. Text
+limits are 4096 visible characters; captions 1024. Existing file allowlists apply.
 
-`reply_to` names an earlier part; an album reply targets its first message.
+Part `reply_to` names an earlier part; an album reply targets its first message.
 `provenance` generates a signature, requires `reply_to`, and accepts no user text
-or files. Native reply failures stop the batch, with no detached quote fallback.
-For replies to existing inbox messages, use existing single send/file tools;
-batch replies currently link only parts within the batch.
+or files. Top-level `reply_to` accepts a stored inbox key and `reply_part` selects
+the root part that answers it. Telegram reply rejection uses a quoted fallback;
+network ambiguity stops without retry.
 
 ## Local defaults and templates
 
@@ -95,8 +96,9 @@ first error. A crash may leave an accepted message unconfirmed.
 Reusing a request ID returns its saved result, never resends; changed content
 under the same ID is rejected. Do not create another ID to bypass uncertainty.
 Check Telegram before arranging another attempt. The local ledger contains text
-and file paths: keep it private. Deleting it removes deduplication history. No TTL
-cleanup is currently applied.
+and file paths: keep it private. Completed ledgers expire after
+`delivery.retention_days` (30 by default) on a later send and can be removed with
+`batch_cleanup`; incomplete attempts remain as duplicate-send evidence.
 
 `batch_status` returns JSON schema `herald.batch-receipt.v1`: request ID, sending
 agent/model, project/subject, destination, and each part's ID, role, tags, kind,

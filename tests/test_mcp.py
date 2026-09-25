@@ -98,6 +98,10 @@ async def test_mcp_exposes_write_tools() -> None:
         "type": "string",
     }
     assert tools["send_file"].input_schema["properties"]["kind"]["default"] == "auto"
+    assert "2–100" in tools["send_files"].description
+    assert "use send_batch" in tools["send_files"].description
+    assert "stored inbox key" in tools["send_batch"].description
+    assert "files or albums" in tools["watch_reply_batch"].description
     assert tools["inbox_status"].annotations.read_only_hint is True
     assert tools["inbox_fetch"].annotations.read_only_hint is False
     assert tools["inbox_done"].annotations.read_only_hint is False
