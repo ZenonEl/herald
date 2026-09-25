@@ -180,15 +180,39 @@ class WatchStore:
                     stamp,
                 ),
             )
-            placeholders = ",".join("?" for _ in names)
-            connection.execute(
-                f"UPDATE watch_deliveries SET target_duty_id=? "
-                f"WHERE state='pending' AND target_duty_id IS NULL "
-                f"AND profile IN ({placeholders})",
-                [duty_id, *names],
-            )
+            self._assign_pending(connection, duty_id, names, primary)
             connection.commit()
         return self.duty(duty_id)
+
+    @staticmethod
+    def _assign_pending(connection, duty_id, profiles, primary_profile) -> None:
+        placeholders = ",".join("?" for _ in profiles)
+        rows = connection.execute(
+            "SELECT delivery_id, chat_id, message_id, profile "
+            "FROM watch_deliveries WHERE state='pending' "
+            "AND target_duty_id IS NULL "
+            f"AND profile IN ({placeholders}) "
+            "ORDER BY chat_id, message_id, CASE WHEN profile=? THEN 0 ELSE 1 END, "
+            "created_at, delivery_id",
+            [*profiles, primary_profile],
+        ).fetchall()
+        keep = {}
+        discard = []
+        for row in rows:
+            key = (row["chat_id"], row["message_id"])
+            if key in keep:
+                discard.append(row["delivery_id"])
+            else:
+                keep[key] = row["delivery_id"]
+        if discard:
+            connection.executemany(
+                "DELETE FROM watch_deliveries WHERE delivery_id=?",
+                [(delivery_id,) for delivery_id in discard],
+            )
+        connection.executemany(
+            "UPDATE watch_deliveries SET target_duty_id=? WHERE delivery_id=?",
+            [(duty_id, delivery_id) for delivery_id in keep.values()],
+        )
 
     def stop(self, duty_id: str) -> dict:
         with self.inbox.connect() as connection:
@@ -360,6 +384,7 @@ class WatchStore:
         self,
         duty_id: str,
         *,
+        settings: WatchConfig,
         scope: WatchScope,
         allow_all: bool,
         limit: int = 100,
@@ -371,11 +396,19 @@ class WatchStore:
         if scope == "all" and not allow_all:
             raise ValueError("watch.allow_inspect_all is false")
         with self.inbox.connect() as connection:
-            self._require_duty(connection, duty_id)
+            duty = self._require_duty(connection, duty_id)
             if scope == "mine":
                 clause, values = "target_duty_id=?", [duty_id]
             elif scope == "unaddressed":
-                clause, values = "state='unaddressed'", []
+                profiles = json.loads(duty["profiles"])
+                sources = {
+                    settings.profiles[name].source
+                    for name in profiles
+                    if name in settings.profiles
+                }
+                if len(sources) != 1:
+                    raise ValueError("Duty profiles do not resolve to one Watch source")
+                clause, values = "state='unaddressed' AND source=?", [sources.pop()]
             else:
                 clause, values = "1=1", []
             rows = connection.execute(

@@ -685,7 +685,11 @@ def watch_inspect(
 
     config, watch = _watch()
     return watch.inspect(
-        duty_id, scope=scope, allow_all=config.watch.allow_inspect_all, limit=limit
+        duty_id,
+        settings=config.watch,
+        scope=scope,
+        allow_all=config.watch.allow_inspect_all,
+        limit=limit,
     )
 
 

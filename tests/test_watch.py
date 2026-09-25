@@ -415,6 +415,43 @@ def test_all_is_fanned_out_and_not_a_shared_queue(watch: WatchStore) -> None:
     assert watch.wait(second["duty_id"], timeout=0)["text"] == "Статус"
 
 
+def test_combined_duty_coalesces_returned_broadcast_deliveries(
+    watch: WatchStore,
+) -> None:
+    cfg = config()
+    first = watch.start(
+        cfg,
+        profiles=["alpha"],
+        primary_profile=None,
+        agent="Codex",
+        model="GPT",
+        session_name="one",
+    )
+    second = watch.start(
+        cfg,
+        profiles=["beta"],
+        primary_profile=None,
+        agent="Claude",
+        model="Opus",
+        session_name="two",
+    )
+    assert watch.ingest(cfg.watch, incoming(22, "#all Статус")) == 2
+    watch.stop(first["duty_id"])
+    watch.stop(second["duty_id"])
+
+    combined = watch.start(
+        cfg,
+        profiles=["alpha", "beta"],
+        primary_profile="alpha",
+        agent="Codex",
+        model="GPT",
+        session_name="combined",
+    )
+
+    assert watch.wait(combined["duty_id"], timeout=0)["text"] == "Статус"
+    assert watch.wait(combined["duty_id"], timeout=0) is None
+
+
 def test_redelivery_does_not_add_new_broadcast_recipients(watch: WatchStore) -> None:
     cfg = config()
     first = watch.start(
@@ -457,10 +494,20 @@ def test_unaddressed_is_separate_and_all_inspection_is_gated(
 
     assert watch.wait(duty["duty_id"], timeout=0) is None
     assert (
-        len(watch.inspect(duty["duty_id"], scope="unaddressed", allow_all=False)) == 1
+        len(
+            watch.inspect(
+                duty["duty_id"],
+                settings=cfg.watch,
+                scope="unaddressed",
+                allow_all=False,
+            )
+        )
+        == 1
     )
     with pytest.raises(ValueError, match="allow_inspect_all"):
-        watch.inspect(duty["duty_id"], scope="all", allow_all=False)
+        watch.inspect(
+            duty["duty_id"], settings=cfg.watch, scope="all", allow_all=False
+        )
 
 
 def test_input_source_and_address_are_validated_before_delivery(
@@ -585,7 +632,12 @@ def test_source_boundary_blocks_another_owners_profile(watch: WatchStore) -> Non
     assert watch.ingest(cfg.watch, incoming(20, "#beta Чужая команда")) == 1
     assert watch.wait(duty["duty_id"], timeout=0) is None
     assert (
-        watch.inspect(duty["duty_id"], scope="unaddressed", allow_all=False)[0]["text"]
+        watch.inspect(
+            duty["duty_id"],
+            settings=cfg.watch,
+            scope="unaddressed",
+            allow_all=False,
+        )[0]["text"]
         == "#beta Чужая команда"
     )
 
@@ -610,3 +662,61 @@ def test_source_boundary_blocks_another_owners_profile(watch: WatchStore) -> Non
     assert watch.ingest(cfg.watch, incoming(21, "#all Проверка")) == 1
     assert watch.wait(duty["duty_id"], timeout=0)["text"] == "Проверка"
     assert watch.wait(other["duty_id"], timeout=0) is None
+
+
+def test_unaddressed_inspection_is_limited_to_the_duties_source(
+    watch: WatchStore,
+) -> None:
+    base = config()
+    cfg = Config(
+        platforms=base.platforms,
+        routes=base.routes,
+        projects=base.projects,
+        watch=WatchConfig(
+            enabled=True,
+            sources={
+                "owner": WatchSource(7, 7),
+                "other_owner": WatchSource(8, 8),
+            },
+            profiles={
+                "alpha": base.watch.profiles["alpha"],
+                "beta": WatchProfile(("beta",), "other_owner", "beta"),
+            },
+        ),
+    )
+    alpha = watch.start(
+        cfg,
+        profiles=["alpha"],
+        primary_profile=None,
+        agent="Codex",
+        model="GPT",
+        session_name="alpha",
+    )
+    beta = watch.start(
+        cfg,
+        profiles=["beta"],
+        primary_profile=None,
+        agent="Claude",
+        model="Opus",
+        session_name="beta",
+    )
+    watch.ingest(
+        cfg.watch,
+        incoming(23, "private from B", chat_id=8, user_id=8),
+    )
+
+    assert watch.inspect(
+        alpha["duty_id"],
+        settings=cfg.watch,
+        scope="unaddressed",
+        allow_all=False,
+    ) == []
+    assert [
+        row["text"]
+        for row in watch.inspect(
+            beta["duty_id"],
+            settings=cfg.watch,
+            scope="unaddressed",
+            allow_all=False,
+        )
+    ] == ["private from B"]
