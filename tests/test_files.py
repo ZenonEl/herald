@@ -50,6 +50,76 @@ def test_album_upload_has_shared_caption_topic_and_receipts(tmp_path, monkeypatc
     assert [item["message_id"] for item in result["sent"]] == [10, 11]
 
 
+def test_large_album_is_chunked_and_captioned_once(tmp_path, monkeypatch):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        if request.url.path.endswith("/sendMediaGroup"):
+            return httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "result": [{"message_id": 100 + index} for index in range(10)],
+                },
+            )
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 110}})
+
+    service, _ = setup_service(tmp_path, monkeypatch, handler)
+    paths = []
+    for index in range(11):
+        path = tmp_path / f"album-{index}.pdf"
+        path.write_bytes(b"test")
+        paths.append(str(path))
+
+    result = service.send_files(
+        paths=paths,
+        kind="document",
+        caption=Message("One caption", "AI", "Model", "demo", "Pack"),
+    )
+
+    assert result["complete"] and len(result["sent"]) == 11
+    assert len(calls) == 2
+    assert b"One caption" in calls[0].read()
+    second = calls[1].read()
+    assert b"One caption" not in second
+    assert b'"message_id": 100' in second
+
+
+def test_large_album_stops_with_exact_remaining_paths(tmp_path, monkeypatch):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        if len(calls) == 1:
+            return httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "result": [{"message_id": 100 + index} for index in range(10)],
+                },
+            )
+        raise httpx.ReadTimeout("ambiguous tail")
+
+    service, _ = setup_service(tmp_path, monkeypatch, handler)
+    paths = []
+    for index in range(12):
+        path = tmp_path / f"partial-{index}.pdf"
+        path.write_bytes(b"test")
+        paths.append(str(path))
+
+    result = service.send_files(
+        paths=paths,
+        kind="document",
+        caption=Message("Pack", "AI", "Model", "demo", "Pack"),
+    )
+
+    assert not result["complete"]
+    assert [item["path"] for item in result["sent"]] == paths[:10]
+    assert result["unconfirmed"] == paths[10:]
+    assert result["not_attempted"] == []
+
+
 def test_batch_checks_all_paths_before_sending(tmp_path, monkeypatch):
     calls = []
     service, paths = setup_service(

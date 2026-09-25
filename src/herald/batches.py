@@ -162,9 +162,9 @@ class Batches:
             content = FormattedText(text, fmt)
             if part.kind in {"file", "album"}:
                 if (part.kind == "file" and len(part.paths) != 1) or (
-                    part.kind == "album" and not 2 <= len(part.paths) <= 10
+                    part.kind == "album" and not 2 <= len(part.paths) <= 100
                 ):
-                    raise ValueError("File parts need one path; albums need 2–10")
+                    raise ValueError("File parts need one path; albums need 2–100")
                 paths = [
                     str(self.service._attachment_path(path)) for path in part.paths
                 ]
@@ -289,6 +289,9 @@ class Batches:
                     "reply_to": p["reply_to"],
                     "state": "not_attempted",
                     "message_ids": [],
+                    "sent_paths": [],
+                    "unconfirmed_paths": [],
+                    "not_attempted_paths": list(p["paths"]),
                 }
                 for p in plan["parts"]
             ]
@@ -328,22 +331,65 @@ class Batches:
                         Attachment(Path(path), part["file_kind"])
                         for path in part["paths"]
                     ]
-                    if part["kind"] == "album":
-                        ids = adapter.send_album(
-                            routing.destination, attachments, content, target
+                    groups = (
+                        [
+                            attachments[index : index + 10]
+                            for index in range(0, len(attachments), 10)
+                        ]
+                        if part["kind"] == "album"
+                        else [attachments]
+                    )
+                    ids = []
+                    for index, group in enumerate(groups):
+                        group_paths = [str(item.path) for item in group]
+                        attempted = len(receipt["sent_paths"]) + len(group)
+                        receipt["unconfirmed_paths"] = group_paths
+                        receipt["not_attempted_paths"] = part["paths"][attempted:]
+                        self._save(result)
+                        group_content = (
+                            content
+                            if index == 0
+                            else FormattedText("", part["format"])
                         )
-                    elif target:
-                        ids = [
-                            adapter.send_file_linked(
-                                routing.destination, attachments[0], content, target
+                        group_target = (
+                            target
+                            if index == 0
+                            else ReplyTarget(
+                                routing.destination.chat_id,
+                                ids[0],
+                                routing.destination.topic_id,
                             )
-                        ]
-                    else:
-                        ids = [
-                            adapter.send_file(
-                                routing.destination, attachments[0], content
+                        )
+                        if len(group) > 1:
+                            group_ids = adapter.send_album(
+                                routing.destination,
+                                group,
+                                group_content,
+                                group_target,
                             )
+                        elif group_target:
+                            group_ids = [
+                                adapter.send_file_linked(
+                                    routing.destination,
+                                    group[0],
+                                    group_content,
+                                    group_target,
+                                )
+                            ]
+                        else:
+                            group_ids = [
+                                adapter.send_file(
+                                    routing.destination, group[0], group_content
+                                )
+                            ]
+                        ids.extend(group_ids)
+                        receipt["message_ids"] = list(ids)
+                        receipt["sent_paths"].extend(group_paths)
+                        receipt["unconfirmed_paths"] = []
+                        receipt["not_attempted_paths"] = part["paths"][
+                            len(receipt["sent_paths"]) :
                         ]
+                        self._save(result)
                 receipt.update(
                     state="sent",
                     message_ids=ids,

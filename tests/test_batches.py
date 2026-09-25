@@ -19,7 +19,8 @@ def batch(tmp_path, monkeypatch):
     def handler(request):
         calls.append(request)
         if request.url.path.endswith("sendMediaGroup"):
-            result = [{"message_id": len(calls) * 10 + n} for n in range(2)]
+            count = request.read().count(b"filename=")
+            result = [{"message_id": len(calls) * 10 + n} for n in range(count)]
         else:
             result = {"message_id": len(calls)}
         return httpx.Response(200, json={"ok": True, "result": result})
@@ -165,6 +166,27 @@ def test_custom_files_album_roles_and_named_replies(batch):
     assert b"reply_parameters" in calls[1].content
     assert result["parts"][2]["message_ids"] == [30, 31]
     assert json.loads(calls[3].content)["reply_parameters"]["message_id"] == 30
+
+
+def test_large_named_album_has_exact_receipts_and_one_caption(batch):
+    service, calls, root = batch
+    paths = []
+    for index in range(11):
+        path = root / f"album-{index}.txt"
+        path.write_text("sample")
+        paths.append(str(path))
+
+    result = service.send(
+        "large-album",
+        **args(parts=[BatchPart("pack", kind="album", text="Files", paths=paths)]),
+    )
+
+    assert result["complete"]
+    assert result["parts"][0]["sent_paths"] == paths
+    assert result["parts"][0]["unconfirmed_paths"] == []
+    assert len(result["parts"][0]["message_ids"]) == 11
+    assert b"Files" in calls[0].read()
+    assert b"Files" not in calls[1].read()
 
 
 def test_template_default_and_project_override(batch):

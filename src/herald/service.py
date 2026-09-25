@@ -114,10 +114,8 @@ class Herald:
             raise ValueError("Provide 1–100 files")
         if mode not in {"album", "separate"}:
             raise ValueError("mode must be album or separate")
-        if mode == "album" and not 2 <= len(paths) <= 10:
-            raise ValueError(
-                "An album requires 2–10 files; use separate for other counts"
-            )
+        if mode == "album" and len(paths) < 2:
+            raise ValueError("An album requires 2–100 files")
         project, route_name, route_config, adapter = self._resolve(
             caption.project, route
         )
@@ -126,7 +124,7 @@ class Herald:
         adapter.validate_files(attachments, rendered, album=mode == "album")
         if reply_to is not None and mode == "separate":
             adapter.validate_files(
-                attachments, render_reply_fallback(rendered, reply_to)
+                attachments[:1], render_reply_fallback(rendered, reply_to)
             )
         result = {
             "route": route_name,
@@ -136,26 +134,48 @@ class Herald:
             "unconfirmed": [],
             "not_attempted": [],
         }
-        groups = [attachments] if mode == "album" else [[item] for item in attachments]
-        for group in groups:
+        groups = (
+            [attachments[index : index + 10] for index in range(0, len(attachments), 10)]
+            if mode == "album"
+            else [[item] for item in attachments]
+        )
+        anchor_id = None
+        for index, group in enumerate(groups):
+            content = rendered if index == 0 else FormattedText("", rendered.format)
+            target = (
+                reply_to
+                if index == 0
+                else ReplyTarget(
+                    route_config.destination.chat_id,
+                    anchor_id,
+                    route_config.destination.topic_id,
+                )
+            )
             try:
-                if mode == "album":
+                if len(group) > 1:
                     ids = adapter.send_album(
-                        route_config.destination, group, rendered, reply_to
+                        route_config.destination, group, content, target
                     )
-                elif reply_to is None:
+                elif target is None:
                     ids = [
-                        adapter.send_file(route_config.destination, group[0], rendered)
+                        adapter.send_file(route_config.destination, group[0], content)
+                    ]
+                elif index > 0:
+                    ids = [
+                        adapter.send_file_linked(
+                            route_config.destination, group[0], content, target
+                        )
                     ]
                 else:
                     message_id, _ = adapter.send_file_reply(
                         route_config.destination,
                         group[0],
-                        rendered,
-                        reply_to,
-                        render_reply_fallback(rendered, reply_to),
+                        content,
+                        target,
+                        render_reply_fallback(content, target),
                     )
                     ids = [message_id]
+                anchor_id = anchor_id or ids[0]
                 result["sent"].extend(
                     {"path": str(item.path), "message_id": mid}
                     for item, mid in zip(group, ids)
