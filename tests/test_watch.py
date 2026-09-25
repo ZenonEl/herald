@@ -1,9 +1,13 @@
+from dataclasses import replace
 from pathlib import Path
 
+import httpx
 import pytest
 
 from herald.config import (
     Config,
+    DeliveryConfig,
+    FilePolicy,
     PlatformConfig,
     ProjectConfig,
     RouteConfig,
@@ -11,8 +15,10 @@ from herald.config import (
     WatchProfile,
     WatchSource,
 )
-from herald.domain import Destination
+from herald.domain import BatchPart, Destination
 from herald.inbox import Inbox
+from herald.service import Herald
+from herald.telegram import TelegramAdapter
 from herald.watch import WatchInput, WatchStore
 
 
@@ -256,6 +262,77 @@ def test_wait_returns_only_the_registered_duties_messages(watch: WatchStore) -> 
     delivery = watch.wait(alpha["duty_id"], timeout=0)
     assert delivery["text"] == "Проверь логи"
     assert delivery["profile"] == "alpha"
+
+
+def test_watch_named_batch_replies_to_command_and_closes_delivery(
+    watch: WatchStore, monkeypatch
+) -> None:
+    from herald import server
+
+    root = watch.inbox.path.parent
+    attachment = root / "report.pdf"
+    attachment.write_bytes(b"report")
+    cfg = replace(
+        config(),
+        files=FilePolicy((root,)),
+        delivery=DeliveryConfig(root / "outbox.db"),
+    )
+    duty = watch.start(
+        cfg,
+        profiles=["alpha"],
+        primary_profile=None,
+        agent="Codex",
+        model="GPT",
+        session_name="alpha",
+    )
+    watch.ingest(cfg.watch, incoming(101, "#alpha Send the files"))
+    delivery = watch.wait(duty["duty_id"], timeout=0)
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(
+            200, json={"ok": True, "result": {"message_id": len(calls) + 200}}
+        )
+
+    adapter = TelegramAdapter(
+        "TOKEN", client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    monkeypatch.setenv("TOKEN", "test")
+    monkeypatch.setattr(server, "_watch", lambda: (cfg, watch))
+    monkeypatch.setattr(
+        server,
+        "build_service",
+        lambda config=None: Herald(cfg, {"telegram": adapter}),
+    )
+    monkeypatch.setattr(server, "_watch_react", lambda *args: None)
+
+    result = server.watch_reply_batch(
+        duty_id=duty["duty_id"],
+        delivery_id=delivery["delivery_id"],
+        request_id="watch-101",
+        subject="Reply",
+        parts=[
+            BatchPart("answer", text="Ready"),
+            BatchPart(
+                "attachment",
+                kind="file",
+                text="Report",
+                paths=[str(attachment)],
+                reply_to="answer",
+            ),
+            BatchPart("signature", kind="provenance", reply_to="attachment"),
+        ],
+    )
+
+    assert result["complete"]
+    assert watch.delivery(duty["duty_id"], delivery["delivery_id"])["state"] == "done"
+    first = __import__("json").loads(calls[0].content)
+    second = calls[1].read()
+    third = __import__("json").loads(calls[2].content)
+    assert first["reply_parameters"]["message_id"] == 101
+    assert b'"message_id": 201' in second
+    assert third["reply_parameters"]["message_id"] == 202
 
 
 def test_all_is_fanned_out_and_not_a_shared_queue(watch: WatchStore) -> None:

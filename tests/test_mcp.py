@@ -45,6 +45,7 @@ async def test_mcp_exposes_write_tools() -> None:
         "watch_wait",
         "watch_inspect",
         "watch_reply",
+        "watch_reply_batch",
         "watch_ack",
         "watch_status",
         "watch_stop",
@@ -108,6 +109,7 @@ async def test_mcp_exposes_write_tools() -> None:
     assert tools["watch_inspect"].annotations.read_only_hint is True
     assert tools["watch_wait"].annotations.read_only_hint is False
     assert tools["watch_reply"].annotations.read_only_hint is False
+    assert tools["watch_reply_batch"].annotations.read_only_hint is False
     assert "reply_to" not in tools["send_batch"].input_schema["required"]
     assert "reply_part" not in tools["send_batch"].input_schema["required"]
     assert "reply_to" in tools["send_batch"].input_schema["properties"]

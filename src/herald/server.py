@@ -697,17 +697,7 @@ def watch_reply(
         raise ValueError("Delivery must be claimed before replying")
     duty = watch.duty(duty_id)
     profile = config.watch.profiles[delivery["profile"]]
-    reply_to = None
-    if profile.reply_context != "none":
-        reply_to = ReplyTarget(
-            chat_id=str(delivery["chat_id"]),
-            message_id=int(delivery["message_id"]),
-            topic_id=delivery.get("topic_id"),
-            quote=(
-                delivery["text"] if profile.reply_context == "native_or_quote" else None
-            ),
-            reference=f"watch:{delivery_id}",
-        )
+    reply_to = _watch_reply_target(profile, delivery, delivery_id)
     try:
         receipt = _send_message(
             build_service(config),
@@ -724,13 +714,7 @@ def watch_reply(
             reply_to,
         )
     except Exception as error:
-        watch.ack(
-            duty_id,
-            delivery_id,
-            success=False,
-            error=f"{type(error).__name__}: {error}",
-        )
-        _watch_react(config, delivery, "failed")
+        _watch_fail(config, watch, delivery, duty_id, delivery_id, error)
         raise
     watch.ack(duty_id, delivery_id, success=True)
     result = asdict(receipt)
@@ -738,6 +722,68 @@ def watch_reply(
     if warning:
         result["reaction_warning"] = warning
     result["delivery_id"] = delivery_id
+    return result
+
+
+@mcp.tool(
+    annotations=WRITE_ANNOTATIONS, description=load_prompt("tools/watch_reply_batch")
+)
+def watch_reply_batch(
+    duty_id: str,
+    delivery_id: str,
+    request_id: str,
+    subject: str,
+    parts: list[BatchPart] | None = None,
+    template: str | None = None,
+    contents: dict[str, dict] | None = None,
+    reply_part: str | None = None,
+) -> dict:
+    """Send a named batch without letting the caller override Watch routing."""
+
+    config, watch = _watch()
+    delivery = watch.delivery(duty_id, delivery_id)
+    if delivery["state"] != "claimed":
+        raise ValueError("Delivery must be claimed before replying")
+    duty = watch.duty(duty_id)
+    profile = config.watch.profiles[delivery["profile"]]
+    reply_to = _watch_reply_target(profile, delivery, delivery_id)
+    try:
+        result = Batches(build_service(config)).send(
+            request_id,
+            project=profile.project,
+            subject=subject,
+            agent=duty["agent"],
+            model=duty["model"],
+            parts=parts,
+            template=template,
+            contents=contents,
+            route=profile.reply_route,
+            reply_to=reply_to,
+            reply_part=reply_part,
+        )
+    except Exception as error:
+        _watch_fail(config, watch, delivery, duty_id, delivery_id, error)
+        raise
+    if not result["complete"]:
+        failed = next(
+            (part for part in result["parts"] if part["state"] != "sent"), None
+        )
+        reason = (
+            f"batch incomplete at {failed['id']}: {failed['state']}"
+            if failed
+            else "batch incomplete"
+        )
+        watch.ack(duty_id, delivery_id, success=False, error=reason)
+        _watch_react(config, delivery, "failed")
+        result["delivery_id"] = delivery_id
+        result["delivery_state"] = "failed"
+        return result
+    watch.ack(duty_id, delivery_id, success=True)
+    warning = _watch_react(config, delivery, "done")
+    result["delivery_id"] = delivery_id
+    result["delivery_state"] = "done"
+    if warning:
+        result["reaction_warning"] = warning
     return result
 
 
@@ -756,6 +802,28 @@ def watch_ack(
     if warning:
         result["reaction_warning"] = warning
     return result
+
+
+def _watch_reply_target(profile, delivery: dict, delivery_id: str) -> ReplyTarget | None:
+    if profile.reply_context == "none":
+        return None
+    return ReplyTarget(
+        chat_id=str(delivery["chat_id"]),
+        message_id=int(delivery["message_id"]),
+        topic_id=delivery.get("topic_id"),
+        quote=(delivery["text"] if profile.reply_context == "native_or_quote" else None),
+        reference=f"watch:{delivery_id}",
+    )
+
+
+def _watch_fail(config, watch, delivery, duty_id, delivery_id, error) -> None:
+    watch.ack(
+        duty_id,
+        delivery_id,
+        success=False,
+        error=f"{type(error).__name__}: {error}",
+    )
+    _watch_react(config, delivery, "failed")
 
 
 @mcp.tool(
