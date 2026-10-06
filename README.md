@@ -1,51 +1,57 @@
 # Herald
 
-Send messages, files, and screenshot albums from Claude Code or Codex to Telegram.
-Keep project conversations in separate topics, preserve the assistant's attribution,
-and capture selected chats into a local inbox.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ZenonEl/herald/main/assets/brand/herald-bird.png" width="150" alt="Herald winged terminal bird">
+</p>
 
-[Русское руководство](README.ru.md) · [Configuration](config.example.toml) · [Changelog](CHANGELOG.md)
+<p align="center">
+  <strong>Stop being the clipboard.</strong><br>
+  A local communication layer between project channels and AI agents.
+</p>
 
-Herald runs locally as a Python MCP server. You provide a Telegram bot and choose
-its destinations. No hosted Herald account is required.
+<p align="center">
+  <a href="https://github.com/ZenonEl/herald/actions/workflows/ci.yml"><img src="https://github.com/ZenonEl/herald/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="https://github.com/ZenonEl/herald/releases/latest"><img src="https://img.shields.io/github/v/release/ZenonEl/herald?display_name=tag&sort=semver" alt="Latest release"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" alt="Python 3.11 or newer"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/code-AGPL--3.0--or--later-f76f53" alt="Code license: AGPL-3.0-or-later"></a>
+</p>
 
-## What you can do
+<p align="center">
+  <a href="README.ru.md">Русское руководство</a> ·
+  <a href="config.example.toml">Configuration</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
 
-- **Send:** free-form Telegram HTML, expandable quotes, files, photo albums, and document packs.
-- **Choose your writing style:** packaged defaults produce short text that a manager
-  can understand and forward without studying the project. Override the instructions
-  locally or per project.
-- **Capture:** buffer messages and attachments from selected chats or topics, including
-  available reply context; export them for an archive such as Mnemo.
-- **Watch (experimental):** address an already-open AI session through bot DMs and
-  receive replies in a configured topic. It does not launch or wake AI sessions.
+Herald moves project messages, context, files and feedback between people and
+already-running AI coding sessions. Its core uses a transport adapter, with
+Telegram as the first and currently only implementation. Herald runs on your
+machine: you bring the bot, approve the destinations, and keep the token and
+project data local.
 
-Example requests:
+| Send | Capture | Watch |
+| --- | --- | --- |
+| Telegram HTML, files, albums, named batches, replies, and delivery receipts | Project-scoped messages, attachments, reply context, and verified archive handoff | Address an open Claude Code or Codex session from the bot DM and reply through its fixed project route |
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ZenonEl/herald/main/assets/brand/herald-social-preview.png" width="100%" alt="A project message passes through Herald with its metadata, is drafted and reviewed in an AI workspace, and returns to the configured project channel">
+</p>
+
+Ask naturally:
 
 > Send the result to the demo project through Herald.
 >
 > Send these screenshots as an album with a short caption.
 >
-> Send these documents as a file pack, preserving the originals.
->
-> Read the demo project's inbox.
+> Read this project's Herald inbox.
 
-The batch workflow defaults to clean client text with a separate signature reply.
-Existing single-message tools keep their inline signature:
-
-```text
-— Claude Code · model name · Demo · Review
-```
-
+The default batch is clean client text followed by a separate provenance reply.
 Use `herald-draft` to prepare client-ready text without sending. Named batches can
-combine text, files, albums and provenance. See [drafts and batches](docs/batches.md).
-They can anchor a selected part to a stored inbox message while keeping the
-signature as a separate reply.
+combine text, files, albums, replies and durable delivery receipts. See
+[drafts and batches](docs/batches.md).
 
-Watch exposes real poll time, reported activity and monitor liveness through
-`/status` in the owner's bot DM. Registration alone does not mean the AI listens;
-inactive duties expire after 15 minutes and release their profiles. See
-[Watch runtime](docs/watch-runtime.md) for Claude/Codex wake-up limitations.
+Watch is an optional bridge to sessions that are already open. It does not launch
+an agent or bypass the host's wake-up model. `/status` exposes real poll activity,
+monitor liveness and stale duties. See [Watch runtime](docs/watch-runtime.md).
 
 ## Install
 

@@ -1,8 +1,8 @@
 [project]
 name = "herald-mcp"
-version = "0.8.0"
-description = "Telegram messages, file albums, and a project inbox for Claude Code and Codex"
-keywords = ["mcp", "telegram", "claude-code", "codex", "albums", "notifications"]
+version = "0.8.1"
+description = "Local MCP communication layer for Telegram, Claude Code, and Codex"
+keywords = ["mcp", "telegram", "telegram-bot", "claude-code", "codex", "ai-agents", "ai-assistant"]
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 authors = [{ name = "ZenonEl" }]
@@ -36,3 +36,10 @@ testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/herald"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "/_kanon",
+    "/assets/brand/BRIEF.md",
+    "/assets/launch-frame",
+]

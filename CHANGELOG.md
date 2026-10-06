@@ -3,6 +3,20 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.8.1] — 2026-10-06
+
+### Added
+
+- A public visual identity, repository social preview and illustrated send flow.
+- CI, release, Python and license badges in the primary README.
+
+### Changed
+
+- Reworked the README opening around Herald's local Telegram bridge, its three
+  core workflows and a shorter path from discovery to installation.
+- Updated contribution guidance to use focused branches instead of the retired
+  beta branch.
+
 ## [0.8.0] — 2026-09-25
 
 ### Added
@@ -255,6 +269,7 @@
 - локальный capture-буфер и экспорт для Mnemo;
 - двойное лицензирование AGPL-3.0-or-later и CC BY-SA 4.0.
 
+[0.8.1]: https://github.com/ZenonEl/herald/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/ZenonEl/herald/compare/v0.7.0...v0.8.0
 [0.8.0-beta.9]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.8...v0.8.0-beta.9
 [0.8.0-beta.8]: https://github.com/ZenonEl/herald/compare/v0.8.0-beta.7...v0.8.0-beta.8

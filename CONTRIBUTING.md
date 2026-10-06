@@ -17,8 +17,8 @@ real chats from the test suite. Cover partial delivery and ambiguous responses
 when changing outbound requests.
 
 Version the package with `uv version` and synchronize plugin manifests. Python
-beta versions use `0.8.0b3`; plugin versions use `0.8.0-beta.3`. Develop on the
-beta branch until the maintainer approves a stable merge.
+beta versions use `0.8.0b3`; plugin versions use `0.8.0-beta.3`. Use focused,
+short-lived branches and open a pull request when a change needs review.
 
 Prompts under `src/herald/prompts/` ship in wheels. Keep reusable defaults generic;
 personal preferences belong in a local override directory. Test both packaged
@@ -30,11 +30,12 @@ as part of an ordinary contribution.
 
 ## Discovery
 
-Suggested repository topics: `mcp`, `mcp-server`, `telegram`, `claude-code`,
-`codex`, `ai-assistant`, `notifications`, `file-sharing`.
+Suggested repository topics: `mcp`, `mcp-server`, `telegram`, `telegram-bot`,
+`claude-code`, `codex`, `ai-agents`, `ai-assistant`, `notifications`,
+`file-sharing`.
 
-Short description: “Send messages, files, and albums from Claude Code or Codex
-to Telegram, with a local project inbox and configurable writing styles.”
+Short description: “Route Telegram project messages, context, files, and
+client-ready feedback through Claude Code or Codex.”
 
 Useful demos: send a screenshot album; switch a project writing style without
 editing code; read a synthetic project inbox. Use a demo bot and invented content.

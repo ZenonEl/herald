@@ -2,6 +2,31 @@
 
 # Herald — руководство на русском
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ZenonEl/herald/main/assets/brand/herald-bird.png" width="150" alt="Крылатый терминальный вестник Herald">
+</p>
+
+<p align="center">
+  <strong>Перестаньте быть буфером обмена.</strong><br>
+  Локальный слой связи между проектными каналами и AI-агентами.
+</p>
+
+<p align="center">
+  <a href="https://github.com/ZenonEl/herald/actions/workflows/ci.yml"><img src="https://github.com/ZenonEl/herald/actions/workflows/ci.yml/badge.svg" alt="Статус CI"></a>
+  <a href="https://github.com/ZenonEl/herald/releases/latest"><img src="https://img.shields.io/github/v/release/ZenonEl/herald?display_name=tag&sort=semver" alt="Последний релиз"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" alt="Python 3.11 или новее"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/code-AGPL--3.0--or--later-f76f53" alt="Лицензия кода: AGPL-3.0-or-later"></a>
+</p>
+
+Herald переносит проектные сообщения, контекст, файлы и обратную связь между
+людьми и уже запущенными AI-сессиями. Ядро использует транспортный адаптер;
+Telegram — первая и пока единственная реализация. Herald работает локально, а
+токен, маршруты и рабочие данные остаются у владельца.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ZenonEl/herald/main/assets/brand/herald-social-preview.png" width="100%" alt="Проектное сообщение проходит через Herald вместе с метаданными, обрабатывается и проверяется в AI-сессии, после чего ответ возвращается в настроенный канал">
+</p>
+
 `herald-draft` готовит клиентский текст до отправки. Именованный пакет может
 содержать несколько сообщений, файлы, альбомы и отдельную подпись-реплай, а его
 выбранная часть — отвечать на сохранённое inbox-сообщение. По умолчанию пакет —
