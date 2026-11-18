@@ -3,6 +3,13 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.9.1-beta.1] — 2026-11-18
+
+### Added
+
+- `herald-export` creates local inbox bundles in Claude Code and Codex. Projects
+  can opt into Mnemo import and reconciliation.
+
 ## [0.9.0] — 2026-11-18
 
 ### Added

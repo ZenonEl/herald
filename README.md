@@ -167,6 +167,10 @@ access-control boundary between users. Export is source-scoped.
 verify the bundle, then call `inbox_done` with an opaque `archive_ref`. Status
 flags rows left taken but unconfirmed for more than 24 hours.
 
+Use `/herald:herald-export` in Claude Code or `$herald:herald-export` in Codex
+to export local inbox bundles for the current project. Add `in Mnemo` to
+import into an existing Mnemo archive and prepare a reconciliation plan.
+
 For optional Watch, configure an allowed private source and profiles, start the same
 Capture daemon, and ask an open AI session to activate a profile. Send
 `#example Your request` in the bot DM. Addressed documents, images, voice notes
