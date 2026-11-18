@@ -148,6 +148,10 @@ def load_config(path: Path | None = None) -> Config:
     except tomllib.TOMLDecodeError as error:
         raise ConfigError(f"Invalid TOML in {source}: {error}") from error
 
+    return parse_config(raw)
+
+
+def parse_config(raw: dict[str, Any]) -> Config:
     try:
         platforms = {
             name: PlatformConfig(

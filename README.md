@@ -78,10 +78,20 @@ that runs `uv run --directory /absolute/path/to/herald herald`. The shared skill
 are in `skills/`. Do not mix checkout registration with a marketplace installation
 of the same server.
 
-Create `~/.config/herald/config.toml` from [config.example.toml](config.example.toml)
-if you do not already have a config. Set your bot token file, routes, and projects.
-Keep the token and actual chat IDs outside this repository. Restrict token-file
-permissions to the owning user. Use `HERALD_CONFIG` for another config location.
+From a checkout of the same version as the plugin, create a local configuration:
+
+```sh
+uv run herald init --project example --chat-id=-1001234567890 --topic-id 42
+uv run herald doctor --project example
+```
+
+The default path is `~/.config/herald/config.toml`. Use `--config PATH` or
+`HERALD_CONFIG` to select another file. `init` protects an existing config.
+To change its route destination, preview the change with
+`uv run herald update --project example --topic-id 43 --dry-run --json`, then
+remove `--dry-run` to apply it. See [setup and diagnostics](docs/doctor.md) for
+the token handoff for agents and [config.example.toml](config.example.toml) for
+Capture and Watch settings. Keep live configuration and tokens outside the checkout.
 
 Start a new AI session and ask “Show Herald destinations.” Sending does not require
 the Capture daemon.
@@ -144,8 +154,9 @@ uv run herald-capture --once
 uv run herald-capture
 ```
 
-Run only one poller per bot token. A user systemd unit is provided in
-[herald-capture.service](herald-capture.service); adjust its checkout path before enabling it.
+Run only one poller per bot token. On Linux, generate a user systemd unit with
+`uv run --no-sync herald capture-unit --prepare` after `uv sync --locked` in a
+stable checkout. See [installation and safe Capture upgrades](docs/doctor.md).
 Bot permissions and privacy settings must allow receiving the messages you want.
 
 Capture is a temporary buffer, not a complete archive or a history reader.

@@ -1,5 +1,5 @@
-from herald.server import main
+from herald.cli import main
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

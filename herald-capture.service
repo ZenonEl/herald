@@ -10,7 +10,8 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/env uv run --directory %h/GitHub/herald herald-capture
+# Provision with uv sync --locked outside the sandbox before starting/updating.
+ExecStart=/usr/bin/env uv run --no-sync --directory %h/GitHub/herald herald-capture
 Restart=always
 RestartSec=5
 # Демон читает только конфиг и пишет только в свой каталог данных.

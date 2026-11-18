@@ -66,19 +66,19 @@ codex plugin add herald@herald
 Обычные просьбы «отправь через Herald» и «включи дежурство Herald» также должны
 активировать нужный skill по описанию.
 
-Плагин не содержит токен и рабочие адресаты. Создай пользовательский конфиг:
+В клоне той же версии, что и плагин, создай пользовательский конфиг:
 
 ```bash
-mkdir -p ~/.config/herald
-curl -fsSL https://raw.githubusercontent.com/ZenonEl/herald/main/config.example.toml \
-  -o ~/.config/herald/config.toml
-printf '%s\n' 'TOKEN_FROM_BOTFATHER' > ~/.config/herald/telegram.token
-chmod 600 ~/.config/herald/telegram.token
+uv run herald init --project example --chat-id=-1001234567890 --topic-id 42
+uv run herald doctor --project example
 ```
 
-Открой `~/.config/herald/config.toml` и замени пример своими разрешёнными
-группами, топиками и проектами. Проверить подключение можно просьбой «покажи
-направления Herald» в новой Claude/Codex-сессии.
+Подставь свои адресаты при запуске. `init` сохранит токен отдельно и откажется
+перезаписывать существующий конфиг. Для правок используй
+`uv run herald update --project example --topic-id 43 --dry-run --json`. Убери
+`--dry-run`, чтобы применить проверенную правку. Агент может передать токен через
+`--token-stdin`. Подробности в [инструкции по настройке](docs/doctor.md).
+Проверь подключение просьбой «покажи направления Herald» в новой сессии Claude или Codex.
 
 ### Обновление плагина
 
@@ -402,21 +402,11 @@ uv run herald-capture          # рабочий режим
 и ручного `--once`.
 Отправка при этом не мешает — конфликтует только опрос с опросом.
 
-Готовый юнит — `herald-capture.service` в корне репозитория:
-
-```bash
-cp herald-capture.service ~/.config/systemd/user/
-$EDITOR ~/.config/systemd/user/herald-capture.service
-systemctl --user daemon-reload
-systemctl --user enable --now herald-capture
-```
-
-В юните поправь под себя:
-
-- `ExecStart` — путь к клону (в файле стоит `%h/GitHub/herald`);
-- `ReadWritePaths` — если менял `database` или `files_dir`, иначе
-  `ProtectSystem=strict` не даст туда писать;
-- `Environment=HERALD_CONFIG=…` — если конфиг лежит не по умолчанию.
+На Linux сначала подготовь окружение командой `uv sync --locked`. Затем
+`uv run --no-sync herald capture-unit --prepare` выведет юнит с фактическими
+путями установки и подготовит каталоги. Юнит запускает готовый executable
+Capture. Инструкция по установке и обновлению службы — в [руководстве](docs/doctor.md).
+`uv run herald doctor` проверяет последний опрос и службу без чтения очереди.
 
 **Пути в конфиге меняются только с рестартом.** Демон открывает базу и каталог
 файлов один раз; подхватывать их на лету значило бы, что он пишет в старую базу,

@@ -3,6 +3,16 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.9.0] — 2026-11-18
+
+### Added
+
+- `herald init` creates a Send configuration and supports unattended setup via
+  stdin, JSON output and a dry run.
+- `herald doctor` checks local setup and Telegram access. `herald-doctor` remains available.
+- `herald update` edits selected project and route settings with a dry run and JSON output.
+- `herald capture-unit` generates a Linux user systemd unit from the actual installation and storage paths.
+
 ## [0.8.1] — 2026-10-06
 
 ### Added
