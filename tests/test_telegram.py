@@ -41,6 +41,54 @@ def test_send_html_sets_parse_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     assert adapter.send(Destination("1"), FormattedText("<b>hello</b>", "html")) == 100
 
 
+@pytest.mark.parametrize("status,body,falls_back", [
+    (400, {"ok": False, "description": "reply not found"}, True),
+    (400, {"ok": False, "description": "invalid rich message"}, False),
+    (404, {"ok": False, "description": "unknown method"}, False),
+    (502, {"ok": False, "description": "gateway error"}, False),
+    (200, {}, False),
+])
+def test_rich_reply_preserves_markup_and_only_falls_back_on_rejection(
+    monkeypatch, status, body, falls_back,
+):
+    monkeypatch.setenv("BOT_TOKEN", "secret")
+    calls = []
+
+    def handler(request):
+        assert request.url.path.endswith("/sendRichMessage")
+        calls.append(json.loads(request.content))
+        if len(calls) == 1:
+            return httpx.Response(status, json=body)
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 10}})
+
+    adapter = TelegramAdapter("BOT_TOKEN", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    message = FormattedText("## Status", "rich_markdown")
+    fallback = FormattedText("## Status\n\n> Original", "rich_markdown")
+    if falls_back:
+        assert adapter.send_reply(Destination("1", 3), message, ReplyTarget("2", 4), fallback) == (10, "quoted_fallback")
+        assert calls[1] == {"chat_id": "1", "message_thread_id": 3, "rich_message": {"markdown": fallback.text}}
+    else:
+        with pytest.raises(TelegramError):
+            adapter.send_reply(Destination("1", 3), message, ReplyTarget("2", 4), fallback)
+        assert len(calls) == 1
+    assert calls[0]["reply_parameters"] == {"message_id": 4, "chat_id": "2"}
+
+
+def test_rich_markdown_has_its_own_length_limit(monkeypatch):
+    monkeypatch.setenv("BOT_TOKEN", "secret")
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 10}})
+
+    adapter = TelegramAdapter("BOT_TOKEN", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert adapter.send(Destination("1"), FormattedText("x" * 4200, "rich_markdown")) == 10
+    with pytest.raises(TelegramError, match="32768"):
+        adapter.send(Destination("1"), FormattedText("x" * 32769, "rich_markdown"))
+    assert len(calls) == 1
+
+
 def test_missing_token_is_clear(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("BOT_TOKEN", raising=False)
     adapter = TelegramAdapter("BOT_TOKEN")

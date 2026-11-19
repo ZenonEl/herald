@@ -3,6 +3,13 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.9.1-beta.3] — 2026-11-19
+
+### Added
+
+- Opt-in Telegram Rich Markdown with native tables and headings in text sends
+  and named batches, without changing the default HTML format.
+
 ## [0.9.1-beta.2] — 2026-11-19
 
 ### Added

@@ -16,6 +16,7 @@ from herald.domain import (
     Message,
     Receipt,
     ReplyTarget,
+    TextFormat,
 )
 from herald.batches import Batches
 from herald.inbox import Inbox
@@ -209,7 +210,7 @@ def send_text(
     subject: str,
     agent: str,
     model: str,
-    format: Literal["plain", "html"] = "html",
+    format: TextFormat = "html",
     preset: Literal["brief", "standard", "detailed"] = "brief",
     route: str | None = None,
     reference: str | None = None,

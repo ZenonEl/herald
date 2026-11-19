@@ -47,7 +47,8 @@ Ask naturally:
 The default batch is clean client text followed by a separate provenance reply.
 Use `herald-draft` to prepare client-ready text without sending. Named batches can
 combine text, files, albums, replies and durable delivery receipts. See
-[drafts and batches](docs/batches.md).
+[drafts and batches](docs/batches.md). Select `rich_markdown` for native Telegram
+tables and headings; HTML remains the default.
 
 Watch is an optional bridge to sessions that are already open. It does not launch
 an agent or bypass the host's wake-up model. `/status` exposes real poll activity,

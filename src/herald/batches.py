@@ -81,8 +81,8 @@ class Batches:
         for slot in slots:
             values = dict(slot)
             content = filled.get(slot.get("id"), {})
-            if not isinstance(content, dict) or set(content) - {"text", "paths"}:
-                raise ValueError("Template contents accept only text and paths")
+            if not isinstance(content, dict) or set(content) - {"text", "paths", "format"}:
+                raise ValueError("Template contents accept only text, paths and format")
             values.update(content)
             try:
                 result.append(BatchPart(**values))
@@ -138,8 +138,10 @@ class Batches:
                 "file",
                 "album",
                 "provenance",
-            } or part.format not in {"plain", "html"}:
-                raise ValueError("Unsupported part kind or format")
+            }:
+                raise ValueError("Unsupported part kind")
+            if part.format == "rich_markdown" and part.kind != "text":
+                raise ValueError("Rich Markdown is only supported for text parts")
             if (
                 not isinstance(part.text, str)
                 or not isinstance(part.paths, list)

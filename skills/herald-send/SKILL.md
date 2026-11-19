@@ -15,7 +15,7 @@ Discussion or drafting alone is not permission to send.
 5. Apply the review in the sibling `herald-draft` skill before delivery. Call `batch_templates(project)` for the configured delivery layout, then `preview_batch` and `send_batch` with the same contents and one stable `request_id`. The built-in default sends clean client text and a separate provenance reply. Custom parts may have any roles/tags and reply to earlier named parts. A batch can also reply to a stored inbox message: pass its key as the top-level `reply_to`; set `reply_part` only when several root parts make the intended anchor ambiguous. Preview is structural validation, not fact verification. For an explicitly requested single signed message or an older server use `send_text`. Pass raw Telegram HTML tags, such as `<b>`, `<i>`, `<blockquote>`, `<blockquote expandable>`, and links. Escape literal text characters, not the formatting tags. `brief` is density, not a hard word budget.
 6. Use `send_client_copy` for requested named topic fields and `send_update` for requested structured internal reports. These tools have their own field validation; do not force ordinary messages into them.
 7. Use `send_file` or `send_files` only for a simple signed attachment or pack. If files need clean client copy, a separate signature, several captions, roles/tags, or an inbox reply combined with other parts, put `file`/`album` parts in `send_batch` instead. `send_files(mode=album)` accepts 2–100 photos or documents and splits them into Telegram groups of ten; `mode=separate` accepts 1–100 ordered files. One logical pack carries the caption once and links later groups to its first message. Album `kind=auto` requires either all photos or all documents. Use `kind=document` for a mixed pack that should preserve original files. Use absolute paths under `files.allowed_roots`; never bypass a rejection.
-8. Telegram limits text to 4096 visible characters and captions to 1024 including the signature. Split oversized material deliberately; do not drop required facts.
+8. Plain/HTML text is limited to 4096 visible characters; captions to 1024. For Rich Markdown see below. Count generated signatures and reply fallback text. Split oversized material deliberately; do not drop required facts.
 9. For a response to an inbox message, pass the returned stored key as `reply_to`. Do not invent coordinates. Text, files, albums and named batches try native/cross-chat reply first and use a quoted fallback only after Telegram explicitly rejects it. Network ambiguity never triggers a retry.
 10. Inspect receipts before reporting success. For batches, check `complete`, `sent`, `unconfirmed`, and `not_attempted`. Never automatically resend unconfirmed files: Telegram may already have accepted them. Report confirmed message IDs and the remaining status.
 
@@ -28,3 +28,29 @@ Top-level batch `reply_to` names a stored inbox message; a part's nested
 The server supplies provenance. It identifies the sending session, not necessarily
 the author of the text. Do not repeat the signature in the body.
 Do not send a file and a separate update unless both were requested.
+
+## Telegram Rich Markdown
+
+Use [Rich Markdown](https://core.telegram.org/bots/api#rich-markdown-style) when
+the user asks for native formatting such as a rendered Markdown table. It also
+supports headings, lists, fenced code, and collapsible details. A table helps when
+several rows share the same fields; otherwise use a short list. Keep cells short,
+use inline formatting only in cells, and put extended detail outside the table.
+Keep required actions and risks visible; reserve collapsible details for context.
+
+```markdown
+## Needs attention
+
+| Check | Status | Count |
+|:------|:-------|------:|
+| Email | Delayed | 10 |
+| Import | Failed | 2 |
+```
+
+Set `format: "rich_markdown"` on a text part in `preview_batch` and `send_batch`,
+including in a template slot's `contents`, or on `send_text` for a single signed
+message. Pass the Markdown source without an outer code fence. The source limit
+is 32768 characters; Telegram also enforces its block, nesting, and table limits.
+Keep file/album captions in plain text or HTML. The adapter uses `sendRichMessage`,
+not `MarkdownV2`. If an older server lacks this option, disclose that before
+sending; offer labeled lines instead of raw pipes or `<table>` in legacy HTML.

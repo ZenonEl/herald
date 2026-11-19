@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Protocol
 
-TextFormat = Literal["plain", "html"]
+TextFormat = Literal["plain", "html", "rich_markdown"]
 MessagePreset = Literal["brief", "standard", "detailed"]
 AttachmentKind = Literal["auto", "photo", "document"]
 QuoteMode = Literal["visible", "expandable"]

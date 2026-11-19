@@ -8,3 +8,5 @@ client copy. Signature metadata identifies the sending session, not text authors
 Top-level reply_to is a stored inbox key; reply_part selects the root batch part
 that answers it. Nested part reply_to still names an earlier part. Album parts
 accept 2–100 files and are split into linked Telegram groups of ten.
+Preserve the previewed format. Text parts accept format=rich_markdown for native
+tables and rich blocks. Do not pass Rich Markdown in file or album captions.

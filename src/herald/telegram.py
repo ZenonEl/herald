@@ -22,6 +22,7 @@ class TelegramError(RuntimeError):
 
 
 MAX_MESSAGE_LENGTH = 4096
+MAX_RICH_MARKDOWN_LENGTH = 32768
 MAX_CAPTION_LENGTH = 1024
 MAX_PHOTO_BYTES = 10_000_000
 PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
@@ -38,8 +39,17 @@ class _RenderedTextCounter(HTMLParser):
 
 class TelegramAdapter:
     def validate_text(self, content: FormattedText) -> None:
-        if _rendered_length(content) > MAX_MESSAGE_LENGTH:
-            raise TelegramError("Text exceeds Telegram's 4096-character limit")
+        if content.format == "rich_markdown":
+            # Bound the source without implementing a second Telegram parser.
+            if len(content.text) > MAX_RICH_MARKDOWN_LENGTH:
+                raise TelegramError("Rich Markdown source exceeds 32768 characters")
+            return
+        length = _rendered_length(content)
+        if length > MAX_MESSAGE_LENGTH:
+            raise TelegramError(
+                f"Message is {length} characters after formatting; "
+                f"Telegram allows {MAX_MESSAGE_LENGTH}. Shorten it or split it into parts."
+            )
 
     def send_linked(self, destination, content, target) -> int:
         response, body = self._send_text(
@@ -65,6 +75,8 @@ class TelegramAdapter:
         *,
         album: bool = False,
     ) -> None:
+        if caption.format == "rich_markdown":
+            raise TelegramError("Rich Markdown is not supported in attachment captions")
         if _rendered_length(caption) > MAX_CAPTION_LENGTH:
             raise TelegramError("Caption exceeds Telegram's 1024-character limit")
         for attachment in attachments:
@@ -220,6 +232,13 @@ class TelegramAdapter:
                 else "external"
             )
             return _message_id(response, body), mode
+        description = str(body.get("description", "")).lower()
+        if content.format == "rich_markdown" and not (
+            response.status_code == 400
+            and body.get("ok") is False
+            and ("reply" in description or "replied" in description)
+        ):
+            return _message_id(response, body), "none"  # Raises on rejection.
         # Telegram explicitly rejected the request, so it was not delivered.
         # Network ambiguity is raised by _send_text and never reaches fallback.
         fallback_response, fallback_body = self._send_text(destination, fallback)
@@ -270,18 +289,16 @@ class TelegramAdapter:
         *,
         reply_parameters: dict | None = None,
     ) -> tuple[httpx.Response, dict]:
-        length = _rendered_length(content)
-        if length > MAX_MESSAGE_LENGTH:
-            raise TelegramError(
-                f"Message is {length} characters after formatting; "
-                f"Telegram allows {MAX_MESSAGE_LENGTH}. Shorten it or split it into parts."
-            )
-        payload: dict[str, object] = {
-            "chat_id": destination.chat_id,
-            "text": content.text,
-        }
-        if content.format == "html":
-            payload["parse_mode"] = "HTML"
+        self.validate_text(content)
+        payload: dict[str, object] = {"chat_id": destination.chat_id}
+        if content.format == "rich_markdown":
+            method = "sendRichMessage"
+            payload["rich_message"] = {"markdown": content.text}
+        else:
+            method = "sendMessage"
+            payload["text"] = content.text
+            if content.format == "html":
+                payload["parse_mode"] = "HTML"
         if destination.topic_id is not None:
             payload["message_thread_id"] = destination.topic_id
         if reply_parameters is not None:
@@ -289,9 +306,12 @@ class TelegramAdapter:
         token = self._read_token()
         try:
             response = self._client.post(
-                f"{self._api_base}/bot{token}/sendMessage", json=payload
+                f"{self._api_base}/bot{token}/{method}", json=payload
             )
-            return response, response.json()
+            body = response.json()
+            if not isinstance(body, dict):
+                raise ValueError("Expected a Telegram response object")
+            return response, body
         except httpx.HTTPError as error:
             raise TelegramError(
                 f"Telegram request failed: {type(error).__name__}"
@@ -307,6 +327,8 @@ class TelegramAdapter:
         *,
         reply_parameters: dict | None = None,
     ) -> tuple[httpx.Response, dict]:
+        if caption.format == "rich_markdown":
+            raise TelegramError("Rich Markdown is not supported in attachment captions")
         length = _rendered_length(caption)
         if length > MAX_CAPTION_LENGTH:
             raise TelegramError(

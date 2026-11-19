@@ -7,6 +7,7 @@ import pytest
 from herald.batches import Batches
 from herald.config import Config, DeliveryConfig, FilePolicy, ProjectConfig, RouteConfig
 from herald.domain import BatchPart, Destination, ReplyTarget
+from herald.server import send_text
 from herald.service import Herald
 from herald.telegram import TelegramAdapter
 
@@ -61,6 +62,53 @@ def test_default_clean_copy_and_separate_native_provenance(batch):
     assert restored["parts"][0]["message_ids"] == [1]
     assert restored["parts"][0]["reply_modes"] == ["none"]
     assert restored["parts"][1]["reply_modes"] == ["native"]
+
+
+def test_rich_markdown_batch_sends_native_table_and_separate_signature(batch):
+    service, calls, _ = batch
+    table = "| Check | Count |\n|:------|------:|\n| Email | 10 |"
+    data = args(contents={"answer": {"text": table, "format": "rich_markdown"}})
+    preview = service.preview(**data)
+    assert preview["parts"][0]["text"] == table
+    assert not calls
+
+    result = service.send("rich-table", **data)
+
+    assert result["complete"]
+    assert calls[0].url.path.endswith("/sendRichMessage")
+    assert json.loads(calls[0].content) == {
+        "chat_id": "-100", "message_thread_id": 2,
+        "rich_message": {"markdown": table},
+    }
+    assert calls[1].url.path.endswith("/sendMessage")
+    assert json.loads(calls[1].content)["reply_parameters"] == {"message_id": 1}
+    assert service.send("rich-table", **data) == result
+    assert len(calls) == 2
+
+
+def test_send_text_mcp_tool_sends_signed_rich_markdown(batch, monkeypatch):
+    service, calls, _ = batch
+    monkeypatch.setattr("herald.server.build_service", lambda: service.service)
+
+    receipt = send_text("## Status", "demo", "Update", "Test", "Model", "rich_markdown")
+
+    assert receipt["message_id"] == 1
+    assert calls[0].url.path.endswith("/sendRichMessage")
+    assert json.loads(calls[0].content)["rich_message"] == {
+        "markdown": "## Status\n\n_— Test · Model · Demo · Update_",
+    }
+
+
+def test_rich_markdown_is_rejected_as_attachment_caption_in_preview(batch):
+    service, calls, tmp_path = batch
+    attachment = tmp_path / "sample.txt"
+    attachment.write_text("example")
+    with pytest.raises(ValueError, match="text parts"):
+        service.preview(**args(parts=[
+            BatchPart("file", kind="file", text="## Title", paths=[str(attachment)],
+                      format="rich_markdown"),
+        ]))
+    assert not calls
 
 
 def test_existing_message_can_anchor_one_named_batch_part(batch):

@@ -17,7 +17,7 @@ configurable. `brief` means density, not a hard word limit.
 5. Check `complete` and every part's state. After interruption use `batch_status`.
 
 Preview checks routing, relationships, permitted paths, sizes and lengths. It
-does not verify facts or guarantee Telegram accepts HTML/media. No Telegram calls
+does not verify facts or guarantee Telegram accepts the formatting or media. No Telegram calls
 are made; `facts_verified=false` is deliberate.
 
 | Template | Parts |
@@ -50,7 +50,16 @@ never use that layout directly in a client's chat.
 takes 2–100 and is split into linked Telegram groups of ten. `file_kind` is
 `auto`, `photo` or `document`. Mixed photo/document albums require `document`.
 Text is the caption for files/albums and is emitted once per logical pack. Text
-limits are 4096 visible characters; captions 1024. Existing file allowlists apply.
+limits for plain/HTML are 4096 visible characters; captions 1024. Existing file allowlists apply.
+
+For native Telegram tables, headings and other [Rich Markdown blocks](https://core.telegram.org/bots/api#rich-markdown-style),
+set `format: "rich_markdown"` on a text part, on the matching template content
+slot, or on `send_text` for a single signed message. The adapter uses
+[`sendRichMessage`](https://core.telegram.org/bots/api#sendrichmessage), not MarkdownV2.
+Keep the Markdown source within 32,768 characters, including any generated footer
+or reply fallback. Telegram checks the syntax and remaining limits at delivery.
+Rich Markdown is not available in attachment captions or `watch_reply`.
+Capture does not extract incoming rich-message blocks into the inbox or reply context.
 
 Part `reply_to` names an earlier part; an album reply targets its first message.
 `provenance` generates a signature, requires `reply_to`, and accepts no user text
@@ -82,7 +91,7 @@ reply_to = "answer"
 # batch_template = "custom"
 ```
 
-Per-send `contents` supplies only `text` and `paths` by slot ID. Template names can
+Per-send `contents` supplies `text`, `paths`, or `format` by slot ID. Template names can
 override built-ins. Changes are read on the next call. Old configs and old send
 tools keep working; single sends retain inline signatures. Only the new batch
 workflow uses the new layout. Custom prompt overrides may need manual updating.

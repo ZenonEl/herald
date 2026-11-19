@@ -2,7 +2,8 @@ from collections.abc import Mapping
 from html import escape
 from pathlib import Path
 import re
-from typing import Literal
+from string import punctuation
+from typing import Literal, get_args
 
 from herald.config import Config, ConfigError
 from herald.domain import (
@@ -16,6 +17,7 @@ from herald.domain import (
     Messenger,
     Receipt,
     ReplyTarget,
+    TextFormat,
 )
 
 _ESCAPED_TELEGRAM_TAG = re.compile(
@@ -26,6 +28,7 @@ _ESCAPED_TELEGRAM_TAG = re.compile(
 _MODEL_PROTOCOL_LINE = re.compile(
     r"(?im)^[ \t]*(?:<|&lt;)/?(?:summary|invoke)(?:>|&gt;)[ \t]*(?:\n|$)"
 )
+_MARKDOWN_ESCAPES = {ord(char): "\\" + char for char in punctuation}
 
 
 class Herald:
@@ -316,22 +319,22 @@ def _render_client_quote(quote: ClientQuote) -> str:
 
 def render_reply_fallback(content: FormattedText, target: ReplyTarget) -> FormattedText:
     reference = target.reference or f"telegram:{target.chat_id}:{target.message_id}"
+    quote = (target.quote or "").strip()
+    if len(quote) > 600:
+        quote = quote[:599].rstrip() + "…"
     if content.format == "html":
         detail = escape(reference)
-        if target.quote:
-            quote = target.quote.strip()
-            if len(quote) > 600:
-                quote = quote[:599].rstrip() + "…"
+        if quote:
             detail += "\n" + escape(quote)
         suffix = (
             f"<blockquote expandable><b>Ответ на сообщение</b>\n{detail}</blockquote>"
         )
+    elif content.format == "rich_markdown":
+        lines = ["Ответ на сообщение:", *f"{reference}\n{quote}".splitlines()]
+        suffix = "\n".join(f"> {line.translate(_MARKDOWN_ESCAPES)}" for line in lines)
     else:
         detail = reference
-        if target.quote:
-            quote = target.quote.strip()
-            if len(quote) > 600:
-                quote = quote[:599].rstrip() + "…"
+        if quote:
             detail += "\n> " + quote.replace("\n", "\n> ")
         suffix = f"Ответ на сообщение:\n{detail}"
     return FormattedText(f"{content.text}\n\n{suffix}", content.format)
@@ -428,6 +431,15 @@ def render_message(message: Message, project_label: str) -> FormattedText:
         metadata = " · ".join(part.strip() for part in metadata_parts)
         reference = message.reference.strip() if message.reference else None
         footer = f"— {metadata}"
+    elif message.format == "rich_markdown":
+        metadata = " · ".join(
+            part.strip().translate(_MARKDOWN_ESCAPES) for part in metadata_parts
+        )
+        reference = (
+            message.reference.strip().translate(_MARKDOWN_ESCAPES)
+            if message.reference else None
+        )
+        footer = f"_— {metadata}_"
     else:
         raise ValueError(f"Unsupported text format: {message.format!r}")
     parts = [text]
@@ -442,11 +454,14 @@ def _strip_model_protocol_lines(text: str) -> str:
     return _MODEL_PROTOCOL_LINE.sub("", text)
 
 
-def render_body(text: str, format: str) -> FormattedText:
+def render_body(text: str, format: TextFormat) -> FormattedText:
     """Shared body hygiene, independent of delivery layout and provenance."""
-    text = _strip_model_protocol_lines(text).strip()
-    if format not in {"plain", "html"}:
+    if format not in get_args(TextFormat):
         raise ValueError(f"Unsupported text format: {format!r}")
+    if format == "rich_markdown":
+        # Preserve Markdown whitespace and legitimate <summary> tags in details.
+        return FormattedText(text if text.strip() else "", format)
+    text = _strip_model_protocol_lines(text).strip()
     if format == "html" and _ESCAPED_TELEGRAM_TAG.search(text):
         raise ValueError("HTML tags are escaped. Pass raw Telegram HTML tags.")
     return FormattedText(text, format)

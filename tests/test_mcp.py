@@ -60,6 +60,8 @@ async def test_mcp_exposes_write_tools() -> None:
     assert tools["send_file"].annotations.read_only_hint is False
     assert "format" not in tools["send_text"].input_schema["required"]
     assert tools["send_text"].input_schema["properties"]["format"]["default"] == "html"
+    assert "rich_markdown" in tools["send_text"].input_schema["properties"]["format"]["enum"]
+    assert "rich_markdown" not in tools["send_file"].input_schema["properties"]["format"]["enum"]
     assert "preset" not in tools["send_text"].input_schema["required"]
     assert tools["send_text"].input_schema["properties"]["preset"] == {
         "enum": ["brief", "standard", "detailed"],

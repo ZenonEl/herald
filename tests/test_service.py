@@ -12,7 +12,13 @@ from herald.domain import (
     Message,
     ReplyTarget,
 )
-from herald.service import Herald, render_client_copy, render_message, render_update
+from herald.service import (
+    Herald,
+    render_client_copy,
+    render_message,
+    render_reply_fallback,
+    render_update,
+)
 
 
 @dataclass
@@ -122,6 +128,30 @@ def test_render_message_strips_standalone_model_protocol_tags() -> None:
     assert "summary" not in rendered.text
     assert "invoke" not in rendered.text
     assert rendered.text.startswith("Итог готов.\n\n")
+
+
+def test_rich_markdown_preserves_body_and_escapes_generated_provenance() -> None:
+    body = "<details>\n<summary>Notes\n</summary>\n\nA detail\n</details>"
+    rendered = render_message(
+        Message(
+            body, "test_agent", "model", "demo", "[Name](https://example.org)",
+            format="rich_markdown",
+        ),
+        "<Demo>",
+    )
+
+    assert rendered.format == "rich_markdown"
+    assert rendered.text.startswith(body + "\n\n_")
+    assert r"test\_agent" in rendered.text
+    assert r"\<Demo\>" in rendered.text
+    assert r"\[Name\]\(" in rendered.text
+    fallback = render_reply_fallback(
+        rendered, ReplyTarget("7", 10, quote="**bold**\n# heading")
+    )
+    assert fallback.format == "rich_markdown"
+    assert fallback.text.startswith(rendered.text + "\n\n")
+    assert r"> \*\*bold\*\*" in fallback.text
+    assert r"> \# heading" in fallback.text
 
 
 def test_send_reply_uses_domain_target_and_reports_mode() -> None:

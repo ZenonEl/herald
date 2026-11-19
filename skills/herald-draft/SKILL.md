@@ -21,7 +21,9 @@ Preparing text is not permission to send it.
 5. Ask only questions the recipient must answer to move this subject forward now.
    Check existing answers first; group independent necessary questions together.
    Do not ask implementation details before the underlying decision is made.
-6. Use free-form Telegram HTML; `brief` means density, not a hard word count.
+6. Default to free-form Telegram HTML. When native tables or Rich Markdown are
+   requested, use the formatting and delivery guidance in `herald-send`.
+   `brief` means density, not a hard word count.
    Headings follow the actual subjects, not obligatory report sections. Optional
    background may be expandable; required actions and risks must remain visible.
 7. Load humanizer if available and compatible; if absent, continue. Never remove
