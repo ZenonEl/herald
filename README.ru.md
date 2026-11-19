@@ -61,12 +61,17 @@ codex plugin add herald@herald
 
 После установки открой новую сессию. Плагин содержит `herald:herald-draft`
 для черновика, `herald:herald-send` для отправки, `herald:herald-watch` для
-дежурства и `herald:herald-export` для выгрузки инбокса.
+дежурства, `herald:herald-export` для выгрузки инбокса и
+`herald:herald-setup` для настройки.
 В Claude Code их можно вызвать через `/herald:…`, в Codex — через `$herald:…`.
 Обычные просьбы «отправь через Herald» и «включи дежурство Herald» также должны
 активировать нужный skill по описанию.
 
-В клоне той же версии, что и плагин, создай пользовательский конфиг:
+Для настройки в чате вызови `/herald:herald-setup` в Claude Code или
+`$herald:herald-setup` в Codex. Навык создаёт конфиг, показывает план правки
+существующего или запускает диагностику.
+
+В терминале можно создать конфиг из клона той же версии, что и плагин:
 
 ```bash
 uv run herald init --project example --chat-id=-1001234567890 --topic-id 42

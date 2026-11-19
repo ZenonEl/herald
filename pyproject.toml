@@ -1,6 +1,6 @@
 [project]
 name = "herald-mcp"
-version = "0.9.1b1"
+version = "0.9.1b2"
 description = "Local MCP communication layer for Telegram, Claude Code, and Codex"
 keywords = ["mcp", "telegram", "telegram-bot", "claude-code", "codex", "ai-agents", "ai-assistant"]
 readme = "README.md"

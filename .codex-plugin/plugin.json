@@ -1,6 +1,6 @@
 {
   "name": "herald",
-  "version": "0.9.1-beta.1",
+  "version": "0.9.1-beta.2",
   "description": "Route Telegram project messages, context, files, and client-ready feedback through Claude Code or Codex.",
   "author": {
     "name": "ZenonEl",

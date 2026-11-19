@@ -87,6 +87,8 @@ uv run herald doctor --project example
 
 The default path is `~/.config/herald/config.toml`. Use `--config PATH` or
 `HERALD_CONFIG` to select another file. `init` protects an existing config.
+In chat, use `/herald:herald-setup` in Claude Code or `$herald:herald-setup`
+in Codex to create a config, preview a change or diagnose the installation.
 To change its route destination, preview the change with
 `uv run herald update --project example --topic-id 43 --dry-run --json`, then
 remove `--dry-run` to apply it. See [setup and diagnostics](docs/doctor.md) for
